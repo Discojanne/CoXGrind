@@ -237,6 +237,10 @@ public class RaidReportFormatterTest
 		Assert.assertEquals(0, view.getPoints().get(0).getAheadSeconds());
 		Assert.assertEquals("Tekton", view.getPoints().get(1).getLabel());
 		Assert.assertEquals(20, view.getPoints().get(1).getAheadSeconds());
+		Assert.assertEquals("Tekton", view.getRows().get(0).getLabel());
+		Assert.assertEquals(Integer.valueOf(-20), view.getRows().get(0).getDelta());
+		Assert.assertEquals("-00:20", view.getRows().get(0).getDiff());
+		Assert.assertTrue(view.getRows().get(view.getRows().size() - 1).isOpen());
 	}
 
 	@Test

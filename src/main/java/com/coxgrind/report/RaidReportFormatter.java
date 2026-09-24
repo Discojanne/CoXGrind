@@ -244,9 +244,10 @@ public final class RaidReportFormatter
 			return recentPace(raids, milk);
 		}
 		StringBuilder out = new StringBuilder();
+		List<TimeRow> rows = new ArrayList<>();
 		if (inProgress)
 		{
-			if (!appendInProgress(out, raids, live, openSeconds, milk))
+			if (!appendInProgress(out, raids, live, openSeconds, milk, rows))
 			{
 				out.append("Waiting for the first room.\n");
 			}
@@ -255,32 +256,40 @@ public final class RaidReportFormatter
 		{
 			List<CoxRaidRecord> combined = new ArrayList<>(raids);
 			combined.add(live);
-			appendRecentCompare(out, combined, null, false, milk);
+			appendRecentCompare(out, combined, null, false, milk, rows);
 		}
 		boolean finished = !inProgress && live.getTotalSeconds() > 0;
-		return new PaceComparison(out.toString(), paceLine(raids, live, finished, milk));
+		return new PaceComparison(out.toString(), paceLine(raids, live, finished, milk), rows, live.getKc(), live.isChallengeMode(), inProgress);
 	}
 
 	public static String recentVersusTarget(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
+	{
+		return targetView(allRaids, mode, size, options).getText();
+	}
+
+	/** Recent raid against the target sheet, with the same rows the Target tab draws. */
+	public static PaceComparison targetView(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
 	{
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
 		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
 		if (raids.isEmpty())
 		{
-			return "No completed raids in this filter yet.\n";
+			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
 		}
 		Map<String, Integer> targets = settings.comparisonSheet(mode);
 		if (targets.isEmpty())
 		{
 			if (mode == RaidModeFilter.ALL)
 			{
-				return "Pick Regular, Regular full, or CM to compare with your targets.\n";
+				return new PaceComparison("Pick Regular, Regular full, or CM to compare with your targets.\n", new ArrayList<PacePoint>());
 			}
-			return "Set targets in the CoXGrind plugin settings.\n";
+			return new PaceComparison("Set targets in the CoXGrind plugin settings.\n", new ArrayList<PacePoint>());
 		}
 		StringBuilder out = new StringBuilder();
-		appendRecentCompare(out, raids, targets, true, includeIceMilking(settings));
-		return out.toString();
+		List<TimeRow> rows = new ArrayList<>();
+		appendRecentCompare(out, raids, targets, true, includeIceMilking(settings), rows);
+		CoxRaidRecord subject = raids.get(raids.size() - 1);
+		return new PaceComparison(out.toString(), new ArrayList<PacePoint>(), rows, subject.getKc(), subject.isChallengeMode(), false, "vs target", false, true);
 	}
 
 	/**
@@ -289,14 +298,21 @@ public final class RaidReportFormatter
 	 */
 	public static String bestSplits(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
 	{
+		return bestView(allRaids, mode, size, options).getText();
+	}
+
+	/** Fastest valid split for each row. Times are gold. The side column is that raid's kill count. */
+	public static PaceComparison bestView(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
+	{
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
 		boolean milk = includeIceMilking(settings);
 		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
 		if (raids.isEmpty())
 		{
-			return "No completed raids in this filter yet.\n";
+			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
 		}
 		StringBuilder out = new StringBuilder();
+		List<TimeRow> drawn = new ArrayList<>();
 		List<String> rows = rowsFor(raids);
 		boolean any = false;
 		for (int r = 0; r < rows.size(); r++)
@@ -321,20 +337,22 @@ public final class RaidReportFormatter
 			}
 			any = true;
 			String kc = (bestRaid.isChallengeMode() ? "CM " : "KC ") + bestRaid.getKc();
-			String shown = higher ? right(Integer.toString(best), 6) : ReportColor.gold(right(TimeFormat.formatSeconds(best), 6));
+			String value = higher ? Integer.toString(best) : TimeFormat.formatSeconds(best);
+			String shown = higher ? right(value, 6) : ReportColor.gold(right(value, 6));
 			out.append(left(shortRoom(row), 15))
 				.append(' ')
 				.append(shown)
 				.append(' ')
 				.append(kc)
 				.append('\n');
+			drawn.add(new TimeRow(shortRoom(row), value, kc, null, higher, false, null));
 			appendTimeBreak(out, row);
 		}
 		if (!any)
 		{
-			return "No room times in this filter yet.\n";
+			return new PaceComparison("No room times in this filter yet.\n", new ArrayList<PacePoint>());
 		}
-		return out.toString();
+		return new PaceComparison(out.toString(), new ArrayList<PacePoint>(), drawn, 0, false, false, "fastest", true, false);
 	}
 
 	private static PaceComparison recentPace(List<CoxRaidRecord> raids, boolean milk)
@@ -344,10 +362,11 @@ public final class RaidReportFormatter
 			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
 		}
 		StringBuilder out = new StringBuilder();
-		appendRecentCompare(out, raids, null, false, milk);
+		List<TimeRow> rows = new ArrayList<>();
+		appendRecentCompare(out, raids, null, false, milk, rows);
 		CoxRaidRecord subject = raids.get(raids.size() - 1);
 		List<CoxRaidRecord> prior = new ArrayList<>(raids.subList(0, raids.size() - 1));
-		return new PaceComparison(out.toString(), paceLine(prior, subject, subject.getTotalSeconds() > 0, milk));
+		return new PaceComparison(out.toString(), paceLine(prior, subject, subject.getTotalSeconds() > 0, milk), rows, subject.getKc(), subject.isChallengeMode(), false);
 	}
 
 	/**
@@ -582,7 +601,7 @@ public final class RaidReportFormatter
 		return raids;
 	}
 
-	private static boolean appendInProgress(StringBuilder out, List<CoxRaidRecord> history, CoxRaidRecord live, int openSeconds, boolean milk)
+	private static boolean appendInProgress(StringBuilder out, List<CoxRaidRecord> history, CoxRaidRecord live, int openSeconds, boolean milk, List<TimeRow> rows)
 	{
 		boolean any = false;
 		boolean sawPrep = false;
@@ -606,7 +625,7 @@ public final class RaidReportFormatter
 					appendTimeBreak(out, "Pre-Olm");
 					sawPrep = false;
 				}
-				appendTimeLine(out, split.getRoom(), split.getSeconds(), averageOf(history, split.getRoom(), milk));
+				appendTimeLine(out, split.getRoom(), split.getSeconds(), averageOf(history, split.getRoom(), milk), false, rows);
 				if (RoomNames.isPrepRoom(split.getRoom()))
 				{
 					sawPrep = true;
@@ -621,6 +640,10 @@ public final class RaidReportFormatter
 				.append(' ')
 				.append(right(TimeFormat.formatSeconds(openSeconds), 6))
 				.append('\n');
+			if (rows != null)
+			{
+				rows.add(new TimeRow("Current", TimeFormat.formatSeconds(openSeconds), "", null, false, true, null));
+			}
 		}
 		return any;
 	}
@@ -642,21 +665,48 @@ public final class RaidReportFormatter
 		return column.average();
 	}
 
-	private static void appendTimeLine(StringBuilder out, String room, int seconds, Double average)
+	private static void appendTimeLine(StringBuilder out, String room, int seconds, Double average, boolean points, List<TimeRow> rows)
 	{
-		String label = shortRoom(room);
-		String colored = "--";
+		TimeRow row = timeRow(room, seconds, average, points);
+		out.append(left(row.getLabel(), 15))
+			.append(' ')
+			.append(right(row.getValue(), 6))
+			.append(' ')
+			.append(coloredDiff(row))
+			.append('\n');
+		if (rows != null)
+		{
+			rows.add(row);
+		}
+	}
+
+	private static TimeRow timeRow(String room, int seconds, Double average, boolean points)
+	{
+		String shown = points ? Integer.toString(seconds) : TimeFormat.formatSeconds(seconds);
+		String diff = "--";
+		Integer delta = null;
+		String averageText = null;
 		if (average != null)
 		{
-			int delta = seconds - (int) Math.round(average);
-			colored = ReportColor.time(delta, timeDiff(seconds, average));
+			delta = seconds - (int) Math.round(average);
+			diff = points ? pointDiff(seconds, average) : timeDiff(seconds, average);
+			int rounded = (int) Math.round(average);
+			averageText = points ? Integer.toString(rounded) : TimeFormat.formatSeconds(rounded);
 		}
-		out.append(left(label, 15))
-			.append(' ')
-			.append(right(TimeFormat.formatSeconds(seconds), 6))
-			.append(' ')
-			.append(colored)
-			.append('\n');
+		return new TimeRow(shortRoom(room), shown, diff, delta, points, false, averageText);
+	}
+
+	private static String coloredDiff(TimeRow row)
+	{
+		if (row.getDelta() == null)
+		{
+			return row.getDiff();
+		}
+		if (row.isPoints())
+		{
+			return ReportColor.points(row.getDelta(), row.getDiff());
+		}
+		return ReportColor.time(row.getDelta(), row.getDiff());
 	}
 
 	/**
@@ -767,7 +817,7 @@ public final class RaidReportFormatter
 		return best;
 	}
 
-	private static void appendRecentCompare(StringBuilder out, List<CoxRaidRecord> raids, Map<String, Integer> targets, boolean againstTarget, boolean milk)
+	private static void appendRecentCompare(StringBuilder out, List<CoxRaidRecord> raids, Map<String, Integer> targets, boolean againstTarget, boolean milk, List<TimeRow> drawn)
 	{
 		List<String> rows = rowsFor(raids);
 		Map<String, Column> columns = buildColumns(raids, rows, milk);
@@ -785,31 +835,30 @@ public final class RaidReportFormatter
 			}
 			boolean points = "Total Points".equals(row) || "PPH".equals(row);
 			int recent = (int) Math.round(column.recent());
-			String shown = points ? Integer.toString(recent) : TimeFormat.formatSeconds(recent);
-			String diff = "--";
-			String colored = diff;
+			Double benchmark = null;
 			if (againstTarget)
 			{
 				Integer target = targets == null ? null : targets.get(row);
 				if (target != null && target > 0)
 				{
-					int delta = recent - target;
-					diff = points ? pointDiff(recent, target) : timeDiff(recent, target);
-					colored = points ? ReportColor.points(delta, diff) : ReportColor.time(delta, diff);
+					benchmark = target.doubleValue();
 				}
 			}
 			else if (column.count() > 0)
 			{
-				int delta = recent - (int) Math.round(column.average());
-				diff = points ? pointDiff(recent, column.average()) : timeDiff(recent, column.average());
-				colored = points ? ReportColor.points(delta, diff) : ReportColor.time(delta, diff);
+				benchmark = column.average();
 			}
-			out.append(left(shortRoom(row), 15))
+			TimeRow drawnRow = timeRow(row, recent, benchmark, points);
+			out.append(left(drawnRow.getLabel(), 15))
 				.append(' ')
-				.append(right(shown, 6))
+				.append(right(drawnRow.getValue(), 6))
 				.append(' ')
-				.append(colored)
+				.append(coloredDiff(drawnRow))
 				.append('\n');
+			if (drawn != null)
+			{
+				drawn.add(drawnRow);
+			}
 			appendTimeBreak(out, row);
 		}
 	}
@@ -2268,15 +2317,100 @@ public final class RaidReportFormatter
 		}
 	}
 
+	/**
+	 * One sidebar time row. {@code delta} is this split minus the comparison value.
+	 * Negative is a faster time. Positive points are higher than the comparison.
+	 */
+	public static final class TimeRow
+	{
+		private final String label;
+		private final String value;
+		private final String diff;
+		private final Integer delta;
+		private final boolean points;
+		private final boolean open;
+		private final String average;
+
+		public TimeRow(String label, String value, String diff, Integer delta, boolean points, boolean open, String average)
+		{
+			this.label = label == null ? "" : label;
+			this.value = value == null ? "" : value;
+			this.diff = diff == null ? "" : diff;
+			this.delta = delta;
+			this.points = points;
+			this.open = open;
+			this.average = average;
+		}
+
+		public String getLabel()
+		{
+			return label;
+		}
+
+		public String getValue()
+		{
+			return value;
+		}
+
+		public String getDiff()
+		{
+			return diff;
+		}
+
+		public Integer getDelta()
+		{
+			return delta;
+		}
+
+		public boolean isPoints()
+		{
+			return points;
+		}
+
+		public boolean isOpen()
+		{
+			return open;
+		}
+
+		public String getAverage()
+		{
+			return average;
+		}
+	}
+
 	public static final class PaceComparison
 	{
 		private final String text;
 		private final List<PacePoint> points;
+		private final List<TimeRow> rows;
+		private final int kc;
+		private final boolean challengeMode;
+		private final boolean inProgress;
+		private final String caption;
+		private final boolean goldTimes;
+		private final boolean againstTarget;
 
 		public PaceComparison(String text, List<PacePoint> points)
 		{
+			this(text, points, new ArrayList<TimeRow>(), 0, false, false);
+		}
+
+		public PaceComparison(String text, List<PacePoint> points, List<TimeRow> rows, int kc, boolean challengeMode, boolean inProgress)
+		{
+			this(text, points, rows, kc, challengeMode, inProgress, "vs average", false, false);
+		}
+
+		public PaceComparison(String text, List<PacePoint> points, List<TimeRow> rows, int kc, boolean challengeMode, boolean inProgress, String caption, boolean goldTimes, boolean againstTarget)
+		{
 			this.text = text == null ? "" : text;
 			this.points = points == null ? new ArrayList<PacePoint>() : points;
+			this.rows = rows == null ? new ArrayList<TimeRow>() : rows;
+			this.kc = kc;
+			this.challengeMode = challengeMode;
+			this.inProgress = inProgress;
+			this.caption = caption == null ? "" : caption;
+			this.goldTimes = goldTimes;
+			this.againstTarget = againstTarget;
 		}
 
 		public String getText()
@@ -2287,6 +2421,41 @@ public final class RaidReportFormatter
 		public List<PacePoint> getPoints()
 		{
 			return points;
+		}
+
+		public List<TimeRow> getRows()
+		{
+			return rows;
+		}
+
+		public int getKc()
+		{
+			return kc;
+		}
+
+		public boolean isChallengeMode()
+		{
+			return challengeMode;
+		}
+
+		public boolean isInProgress()
+		{
+			return inProgress;
+		}
+
+		public String getCaption()
+		{
+			return caption;
+		}
+
+		public boolean isGoldTimes()
+		{
+			return goldTimes;
+		}
+
+		public boolean isAgainstTarget()
+		{
+			return againstTarget;
 		}
 	}
 }

@@ -30,10 +30,8 @@ import javax.swing.JPanel;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
 import javax.swing.JTabbedPane;
-import javax.swing.JTextPane;
 import javax.swing.JViewport;
 import javax.swing.Scrollable;
-import javax.swing.text.View;
 import javax.swing.SwingUtilities;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
@@ -45,22 +43,19 @@ public class CoxGrindPanel extends PluginPanel
 	private static final String FILTER_GROUP = "coxgrind";
 	private static final String MODE_KEY = "panelMode";
 	private static final String SIZE_KEY = "panelSize";
-	/** Monospace 13 is 8px wide on this PC. 12 is 7px and leaves a gap. 14 is 9px and clips the row. */
-	private static final int TIME_TEXT = 13;
-
 	private final RaidLogStore store;
 	private final CoxGrindConfig config;
 	private final ConfigManager configManager;
 	private final JComboBox<RaidModeFilter> modeBox = new JComboBox<>(RaidModeFilter.values());
 	private final JComboBox<RaidSizeFilter> sizeBox = new JComboBox<>(RaidSizeFilter.values());
-	private final JTextPane pacePane = new JTextPane();
+	private final ActiveTimes activeTimes = new ActiveTimes();
 	private final PaceGraph paceGraph = new PaceGraph();
 	private final PaceColumn paceColumn = new PaceColumn();
 	private final JScrollPane paceScroll = new JScrollPane(paceColumn);
 	private final JTabbedPane tabs = new JTabbedPane();
-	private final JTextPane targetPane = new JTextPane();
+	private final ActiveTimes targetTimes = new ActiveTimes();
 	private final PurplePanel purplePanel = new PurplePanel();
-	private final JTextPane bestPane = new JTextPane();
+	private final ActiveTimes bestTimes = new ActiveTimes();
 	private String accountHash;
 	private List<CoxRaidRecord> cachedRaids = java.util.Collections.emptyList();
 	private boolean live;
@@ -88,8 +83,6 @@ public class CoxGrindPanel extends PluginPanel
 		sizeBox.setFont(small);
 		modeBox.setToolTipText("Raid type");
 		sizeBox.setToolTipText("Party size");
-		pacePane.setMargin(new Insets(0, 1, 0, 1));
-
 		setLayout(new BorderLayout());
 		JPanel top = new JPanel(new BorderLayout());
 		top.setBorder(BorderFactory.createEmptyBorder(2, 4, 0, 4));
@@ -130,18 +123,19 @@ public class CoxGrindPanel extends PluginPanel
 		tabs.putClientProperty("JTabbedPane.tabInsets", new Insets(2, 0, 2, 0));
 		tabs.putClientProperty("JTabbedPane.tabAreaInsets", new Insets(0, 0, 0, 0));
 		tabs.putClientProperty("JTabbedPane.tabWidthMode", "equal");
-		pacePane.setAlignmentX(Component.LEFT_ALIGNMENT);
+		tabs.putClientProperty("JTabbedPane.tabAreaAlignment", "fill");
+		activeTimes.setAlignmentX(Component.LEFT_ALIGNMENT);
 		paceGraph.setAlignmentX(Component.LEFT_ALIGNMENT);
-		paceColumn.add(pacePane);
+		paceColumn.add(activeTimes);
 		paceColumn.add(paceGraph);
 		paceScroll.setBorder(BorderFactory.createEmptyBorder());
 		paceScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		paceScroll.getViewport().setBackground(new Color(24, 24, 24));
 		tabs.addTab("Active", paceScroll);
 		tabs.setToolTipTextAt(0, "Recent raid vs your average");
-		tabs.addTab("Target", reading(targetPane));
+		tabs.addTab("Target", reading(targetTimes));
 		tabs.setToolTipTextAt(1, "Recent raid vs your targets");
-		tabs.addTab("Bests", reading(bestPane));
+		tabs.addTab("Bests", reading(bestTimes));
 		tabs.setToolTipTextAt(2, "Fastest split, points, and PPH in this filter");
 		tabs.addTab("Purples", reading(purplePanel));
 		tabs.setToolTipTextAt(3, "Every logged raid");
@@ -306,12 +300,7 @@ public class CoxGrindPanel extends PluginPanel
 		JScrollBar bar = paceScroll.getVerticalScrollBar();
 		int value = bar.getValue();
 		boolean followEnd = value + bar.getVisibleAmount() >= bar.getMaximum() - 24;
-		String text = pace.getText();
-		if (text.endsWith("\n"))
-		{
-			text = text.substring(0, text.length() - 1);
-		}
-		ColoredText.apply(pacePane, text, TIME_TEXT);
+		activeTimes.show(pace);
 		tabs.setToolTipTextAt(0, live ? "This raid vs your average" : "Recent raid vs your average");
 		SwingUtilities.invokeLater(new Runnable()
 		{
@@ -329,15 +318,15 @@ public class CoxGrindPanel extends PluginPanel
 
 	private void paintRest()
 	{
-		String targets = "No raids saved yet.\n";
-		String bests = targets;
+		RaidReportFormatter.PaceComparison targets = new RaidReportFormatter.PaceComparison("No raids saved yet.\n", java.util.Collections.<RaidReportFormatter.PacePoint>emptyList());
+		RaidReportFormatter.PaceComparison bests = targets;
 		try
 		{
 			RaidModeFilter mode = (RaidModeFilter) modeBox.getSelectedItem();
 			RaidSizeFilter size = (RaidSizeFilter) sizeBox.getSelectedItem();
 			ReportOptions options = reportOptions();
-			targets = RaidReportFormatter.recentVersusTarget(cachedRaids, mode, size, options);
-			bests = RaidReportFormatter.bestSplits(cachedRaids, mode, size, options);
+			targets = RaidReportFormatter.targetView(cachedRaids, mode, size, options);
+			bests = RaidReportFormatter.bestView(cachedRaids, mode, size, options);
 			if (cachedRaids.isEmpty())
 			{
 				purplePanel.showNotice("No completed raids logged yet.");
@@ -353,12 +342,12 @@ public class CoxGrindPanel extends PluginPanel
 		}
 		catch (RuntimeException ex)
 		{
-			targets = "Could not read the log.\n";
+			targets = new RaidReportFormatter.PaceComparison("Could not read the log.\n", java.util.Collections.<RaidReportFormatter.PacePoint>emptyList());
 			bests = targets;
 			purplePanel.showNotice("Could not read the log.");
 		}
-		ColoredText.apply(targetPane, targets, TIME_TEXT);
-		ColoredText.apply(bestPane, bests, TIME_TEXT);
+		targetTimes.show(targets);
+		bestTimes.show(bests);
 	}
 
 	private void restoreFilters()
@@ -501,10 +490,11 @@ public class CoxGrindPanel extends PluginPanel
 		return Math.min(value, 100);
 	}
 
-	private JScrollPane reading(JTextPane pane)
+	private JScrollPane reading(ActiveTimes list)
 	{
-		pane.setMargin(new Insets(0, 1, 0, 1));
-		return scroll(pane);
+		JScrollPane scroll = scroll(list);
+		scroll.getViewport().setBackground(new Color(24, 24, 24));
+		return scroll;
 	}
 
 	private JScrollPane reading(PurplePanel pane)
@@ -558,50 +548,14 @@ public class CoxGrindPanel extends PluginPanel
 		public Dimension getPreferredSize()
 		{
 			int width = columnWidth();
-			int textHeight = textHeight(width);
-			Dimension text = new Dimension(width, textHeight);
-			pacePane.setPreferredSize(text);
-			pacePane.setMinimumSize(text);
-			pacePane.setMaximumSize(new Dimension(Integer.MAX_VALUE, textHeight));
-			pacePane.setSize(text);
+			int listHeight = activeTimes.preferredHeight(width);
+			Dimension list = new Dimension(width, listHeight);
+			activeTimes.setPreferredSize(list);
+			activeTimes.setMinimumSize(list);
+			activeTimes.setMaximumSize(new Dimension(Integer.MAX_VALUE, listHeight));
+			activeTimes.setSize(list);
 			int graphHeight = paceGraph.getPreferredSize().height;
-			return new Dimension(width, textHeight + graphHeight);
-		}
-
-		private int textHeight(int width)
-		{
-			Insets insets = pacePane.getInsets();
-			int inner = Math.max(1, width - insets.left - insets.right);
-			View root = pacePane.getUI().getRootView(pacePane);
-			root.setSize(inner, 1);
-			int fromView = (int) Math.ceil(root.getPreferredSpan(View.Y_AXIS)) + insets.top + insets.bottom;
-			int lineCount = 1;
-			try
-			{
-				String content = pacePane.getDocument().getText(0, pacePane.getDocument().getLength());
-				for (int i = 0; i < content.length(); i++)
-				{
-					if (content.charAt(i) == '\n')
-					{
-						lineCount++;
-					}
-				}
-			}
-			catch (Exception ex)
-			{
-				lineCount = 1;
-			}
-			int line = Math.max(12, pacePane.getFontMetrics(pacePane.getFont()).getHeight());
-			int fromLines = lineCount * line + insets.top + insets.bottom;
-			if (fromView < line)
-			{
-				return fromLines;
-			}
-			if (fromView > fromLines * 2)
-			{
-				return fromLines;
-			}
-			return fromView;
+			return new Dimension(width, listHeight + graphHeight);
 		}
 
 		private int columnWidth()
