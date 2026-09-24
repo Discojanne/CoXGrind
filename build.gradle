@@ -1,0 +1,56 @@
+plugins {
+	id 'java'
+}
+
+repositories {
+	mavenLocal()
+	maven {
+		url = 'https://repo.runelite.net'
+		content {
+			includeGroupByRegex("net\\.runelite.*")
+		}
+	}
+	mavenCentral()
+}
+
+def runeLiteVersion = 'latest.release'
+
+dependencies {
+	compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+	compileOnly 'org.slf4j:slf4j-api:1.7.36'
+	compileOnly 'com.google.code.gson:gson:2.10.1'
+
+	testImplementation 'junit:junit:4.13.2'
+	testImplementation 'com.google.code.gson:gson:2.10.1'
+	testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+	testImplementation group: 'net.runelite', name: 'jshell', version: runeLiteVersion
+}
+
+group = 'com.coxgrind'
+version = '1.0.0'
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	options.release.set(11)
+}
+
+tasks.named('test') {
+	useJUnit()
+}
+
+// Launches a developer RuneLite client with CoXGrind loaded.
+// Same shape as the official RuneLite example-plugin run task.
+def pluginMainClass = 'com.coxgrind.CoxGrindPluginTest'
+
+tasks.register('run', JavaExec) {
+	group = 'application'
+	description = 'Run RuneLite with the CoXGrind plugin loaded'
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = pluginMainClass
+	jvmArgs "-ea"
+	args "--developer-mode", "--debug"
+}
+
+jar {
+	archiveBaseName.set('cox-grind')
+}
