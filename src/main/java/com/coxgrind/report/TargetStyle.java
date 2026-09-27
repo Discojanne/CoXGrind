@@ -1,27 +1,45 @@
 package com.coxgrind.report;
 
+import com.coxgrind.track.RoomNames;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Method checkboxes adjust the comparison column. Typed targets stay as saved.
- * Twisted bow off shortens tbow rooms. Ice milking, killing rope, and Vespula milking add time when on.
+ * Checkboxes adjust the comparison column. Typed targets stay as saved.
+ * Twisted bow, items, and strategies add time when off. Money-run methods add time when on.
  */
 public final class TargetStyle
 {
+	static final int NO_TBOW_SHAMANS = 6;
+	static final int NO_TBOW_VANGUARDS = 2;
+	static final int NO_TBOW_TIGHTROPE = 8;
+	static final int NO_TBOW_VASA = 30;
+	static final int NO_TBOW_MUTTADILES = 10;
+	static final int NO_TBOW_OLM_HEAD = 20;
+	static final int NO_HELM_SHAMANS = 9;
+	static final int NO_LOCKPICK_THIEVING = 4;
+	static final int NO_AXE_ICE = 5;
+	static final int NO_SALVE_MYSTICS = 5;
+	static final int NO_PRE_VENG_TEKTON = 4;
+	static final int NO_VESP_POT_SKIP_TIGHTROPE = 6;
+	static final int NO_CRAB_TANK_CRABS = 4;
+	static final int KILL_ROPE_SECONDS = 59;
+	static final int MILK_VESPULA_SECONDS = 18;
+	static final int OVER_THIEVE_SECONDS = 7;
+
 	private boolean useTbow = true;
+	private boolean slayerHelm = true;
+	private boolean lockpick = true;
+	private boolean axe = true;
+	private boolean salve = true;
+	private boolean preVeng = true;
+	private boolean vespPotSkip = true;
+	private boolean crabTank = true;
 	private boolean iceMilking;
 	private boolean killRope;
 	private boolean milkVespula;
-	private int noTbowVanguards = 15;
-	private int noTbowTightrope = 10;
-	private int noTbowVasa = 20;
-	private int noTbowMystics = 25;
-	private int noTbowMuttadiles = 20;
-	private int noTbowOlmHead = 30;
+	private boolean overThieve;
 	private int iceMilkSeconds = 70;
-	private int killRopeSeconds = 50;
-	private int milkVespulaSeconds = 10;
 
 	public boolean isUseTbow()
 	{
@@ -31,6 +49,76 @@ public final class TargetStyle
 	public void setUseTbow(boolean useTbow)
 	{
 		this.useTbow = useTbow;
+	}
+
+	public boolean isSlayerHelm()
+	{
+		return slayerHelm;
+	}
+
+	public void setSlayerHelm(boolean slayerHelm)
+	{
+		this.slayerHelm = slayerHelm;
+	}
+
+	public boolean isLockpick()
+	{
+		return lockpick;
+	}
+
+	public void setLockpick(boolean lockpick)
+	{
+		this.lockpick = lockpick;
+	}
+
+	public boolean isAxe()
+	{
+		return axe;
+	}
+
+	public void setAxe(boolean axe)
+	{
+		this.axe = axe;
+	}
+
+	public boolean isSalve()
+	{
+		return salve;
+	}
+
+	public void setSalve(boolean salve)
+	{
+		this.salve = salve;
+	}
+
+	public boolean isPreVeng()
+	{
+		return preVeng;
+	}
+
+	public void setPreVeng(boolean preVeng)
+	{
+		this.preVeng = preVeng;
+	}
+
+	public boolean isVespPotSkip()
+	{
+		return vespPotSkip;
+	}
+
+	public void setVespPotSkip(boolean vespPotSkip)
+	{
+		this.vespPotSkip = vespPotSkip;
+	}
+
+	public boolean isCrabTank()
+	{
+		return crabTank;
+	}
+
+	public void setCrabTank(boolean crabTank)
+	{
+		this.crabTank = crabTank;
 	}
 
 	public boolean isIceMilking()
@@ -63,34 +151,14 @@ public final class TargetStyle
 		this.milkVespula = milkVespula;
 	}
 
-	public void setNoTbowVanguards(int seconds)
+	public boolean isOverThieve()
 	{
-		noTbowVanguards = clamp(seconds);
+		return overThieve;
 	}
 
-	public void setNoTbowTightrope(int seconds)
+	public void setOverThieve(boolean overThieve)
 	{
-		noTbowTightrope = clamp(seconds);
-	}
-
-	public void setNoTbowVasa(int seconds)
-	{
-		noTbowVasa = clamp(seconds);
-	}
-
-	public void setNoTbowMystics(int seconds)
-	{
-		noTbowMystics = clamp(seconds);
-	}
-
-	public void setNoTbowMuttadiles(int seconds)
-	{
-		noTbowMuttadiles = clamp(seconds);
-	}
-
-	public void setNoTbowOlmHead(int seconds)
-	{
-		noTbowOlmHead = clamp(seconds);
+		this.overThieve = overThieve;
 	}
 
 	public void setIceMilkSeconds(int seconds)
@@ -98,22 +166,20 @@ public final class TargetStyle
 		iceMilkSeconds = clamp(seconds);
 	}
 
-	public void setKillRopeSeconds(int seconds)
-	{
-		killRopeSeconds = clamp(seconds);
-	}
-
-	public void setMilkVespulaSeconds(int seconds)
-	{
-		milkVespulaSeconds = clamp(seconds);
-	}
-
 	public boolean changesTargets()
 	{
-		return (!useTbow && tbowSeconds() > 0)
+		return !useTbow
+			|| !slayerHelm
+			|| !lockpick
+			|| !axe
+			|| !salve
+			|| !preVeng
+			|| !vespPotSkip
+			|| !crabTank
 			|| (iceMilking && iceMilkSeconds > 0)
-			|| (killRope && (killRopeSeconds > 0 || (!useTbow && noTbowTightrope > 0)))
-			|| (milkVespula && milkVespulaSeconds > 0);
+			|| killRope
+			|| milkVespula
+			|| overThieve;
 	}
 
 	public String note()
@@ -123,21 +189,53 @@ public final class TargetStyle
 			return "";
 		}
 		StringBuilder note = new StringBuilder("Targets adjusted:");
-		if (!useTbow && tbowSeconds() > 0)
+		if (!useTbow)
 		{
 			note.append(" no twisted bow");
+		}
+		if (!slayerHelm)
+		{
+			note.append(" no slayer helm");
+		}
+		if (!lockpick)
+		{
+			note.append(" no lockpick");
+		}
+		if (!axe)
+		{
+			note.append(" no axe");
+		}
+		if (!salve)
+		{
+			note.append(" no salve");
+		}
+		if (!preVeng)
+		{
+			note.append(" no pre-veng");
+		}
+		if (!vespPotSkip)
+		{
+			note.append(" no vesp pot skip");
+		}
+		if (!crabTank)
+		{
+			note.append(" no crab tank");
+		}
+		if (killRope)
+		{
+			note.append(" killing rope");
+		}
+		if (milkVespula)
+		{
+			note.append(" vesp milk");
 		}
 		if (iceMilking && iceMilkSeconds > 0)
 		{
 			note.append(" ice milking");
 		}
-		if (killRope && killRopeSeconds > 0)
+		if (overThieve)
 		{
-			note.append(" killing rope");
-		}
-		if (milkVespula && milkVespulaSeconds > 0)
-		{
-			note.append(" milking Vespula");
+			note.append(" over-thieve");
 		}
 		note.append('.');
 		return note.toString();
@@ -150,41 +248,136 @@ public final class TargetStyle
 		{
 			out.putAll(sheet);
 		}
-		int prep = 0;
 		if (!useTbow)
 		{
-			prep += shift(out, "Vanguards", -noTbowVanguards);
-			prep += shift(out, "Vasa", -noTbowVasa);
-			prep += shift(out, "Mystics", -noTbowMystics);
-			prep += shift(out, "Muttadiles", -noTbowMuttadiles);
+			shift(out, "Shamans", NO_TBOW_SHAMANS);
+			shift(out, "Vanguards", NO_TBOW_VANGUARDS);
+			shift(out, "Vasa", NO_TBOW_VASA);
+			shift(out, "Muttadiles", NO_TBOW_MUTTADILES);
+			shift(out, "Olm head", NO_TBOW_OLM_HEAD);
 			if (killRope)
 			{
-				prep += shift(out, "Tightrope", -noTbowTightrope);
+				shift(out, "Tightrope", NO_TBOW_TIGHTROPE);
 			}
+		}
+		if (!slayerHelm)
+		{
+			shift(out, "Shamans", NO_HELM_SHAMANS);
+		}
+		if (!lockpick)
+		{
+			shift(out, "Thieving", NO_LOCKPICK_THIEVING);
+		}
+		if (!axe)
+		{
+			shift(out, "Ice demon", NO_AXE_ICE);
+		}
+		if (!salve)
+		{
+			shift(out, "Mystics", NO_SALVE_MYSTICS);
+		}
+		if (!preVeng)
+		{
+			shift(out, "Tekton", NO_PRE_VENG_TEKTON);
+		}
+		if (!vespPotSkip)
+		{
+			shift(out, "Tightrope", NO_VESP_POT_SKIP_TIGHTROPE);
+		}
+		if (!crabTank)
+		{
+			shift(out, "Crabs", NO_CRAB_TANK_CRABS);
 		}
 		if (iceMilking)
 		{
-			prep += shift(out, "Ice demon", iceMilkSeconds);
+			shift(out, "Ice demon", iceMilkSeconds);
 		}
 		if (killRope)
 		{
-			prep += shift(out, "Tightrope", killRopeSeconds);
+			shift(out, "Tightrope", KILL_ROPE_SECONDS);
 		}
 		if (milkVespula)
 		{
-			prep += shift(out, "Vespula", milkVespulaSeconds);
+			shift(out, "Vespula", MILK_VESPULA_SECONDS);
 		}
-		int head = useTbow ? 0 : shift(out, "Olm head", -noTbowOlmHead);
-		shift(out, "Pre-Olm", prep);
-		shift(out, "Olm", head);
-		shift(out, "Raid Completed", prep + head);
+		if (overThieve)
+		{
+			shift(out, "Thieving", OVER_THIEVE_SECONDS);
+		}
+		derivePreOlm(out);
+		deriveOlm(out);
+		deriveRaid(out);
 		return out;
 	}
 
-	private int tbowSeconds()
+	/** Pre-Olm is the sum of the prep-room targets. Rooms with no target are left out. */
+	private static void derivePreOlm(Map<String, Integer> sheet)
 	{
-		return noTbowVanguards + noTbowVasa + noTbowMystics + noTbowMuttadiles + noTbowOlmHead
-			+ (killRope ? noTbowTightrope : 0);
+		int sum = 0;
+		boolean any = false;
+		for (int i = 0; i < RoomNames.PREP_ROOMS.size(); i++)
+		{
+			Integer value = sheet.get(RoomNames.PREP_ROOMS.get(i));
+			if (value != null && value > 0)
+			{
+				sum += value;
+				any = true;
+			}
+		}
+		if (any)
+		{
+			sheet.put("Pre-Olm", sum);
+		}
+		else
+		{
+			sheet.remove("Pre-Olm");
+		}
+	}
+
+	/** Olm is the phase targets plus the head, plus one minute between phases. Mage hand is already inside the phase. */
+	private static final int OLM_GAP_SECONDS = 60;
+
+	private static void deriveOlm(Map<String, Integer> sheet)
+	{
+		int sum = 0;
+		boolean any = false;
+		for (int phase = 1; phase <= 8; phase++)
+		{
+			Integer value = sheet.get("Olm phase " + phase);
+			if (value != null && value > 0)
+			{
+				sum += value;
+				any = true;
+			}
+		}
+		Integer head = sheet.get("Olm head");
+		if (head != null && head > 0)
+		{
+			sum += head;
+			any = true;
+		}
+		if (any)
+		{
+			sheet.put("Olm", sum + OLM_GAP_SECONDS);
+		}
+		else
+		{
+			sheet.remove("Olm");
+		}
+	}
+
+	/** Raid time is Pre-Olm plus Olm plus the between-rooms target. */
+	private static void deriveRaid(Map<String, Integer> sheet)
+	{
+		Integer pre = sheet.get("Pre-Olm");
+		Integer olm = sheet.get("Olm");
+		Integer between = sheet.get("Between room time");
+		if (pre == null || pre <= 0 || olm == null || olm <= 0 || between == null || between <= 0)
+		{
+			sheet.remove("Raid Completed");
+			return;
+		}
+		sheet.put("Raid Completed", pre + olm + between);
 	}
 
 	private static int shift(Map<String, Integer> sheet, String room, int delta)

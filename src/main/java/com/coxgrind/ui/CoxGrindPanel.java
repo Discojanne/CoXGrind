@@ -50,10 +50,13 @@ public class CoxGrindPanel extends PluginPanel
 	private final JComboBox<RaidSizeFilter> sizeBox = new JComboBox<>(RaidSizeFilter.values());
 	private final ActiveTimes activeTimes = new ActiveTimes();
 	private final PaceGraph paceGraph = new PaceGraph();
-	private final PaceColumn paceColumn = new PaceColumn();
+	private final PaceColumn paceColumn = new PaceColumn(activeTimes, paceGraph);
 	private final JScrollPane paceScroll = new JScrollPane(paceColumn);
 	private final JTabbedPane tabs = new JTabbedPane();
 	private final ActiveTimes targetTimes = new ActiveTimes();
+	private final PaceGraph targetGraph = PaceGraph.againstTarget();
+	private final PaceColumn targetColumn = new PaceColumn(targetTimes, targetGraph);
+	private final JScrollPane targetScroll = new JScrollPane(targetColumn);
 	private final PurplePanel purplePanel = new PurplePanel();
 	private final ActiveTimes bestTimes = new ActiveTimes();
 	private String accountHash;
@@ -131,11 +134,18 @@ public class CoxGrindPanel extends PluginPanel
 		paceScroll.setBorder(BorderFactory.createEmptyBorder());
 		paceScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		paceScroll.getViewport().setBackground(new Color(24, 24, 24));
-		tabs.addTab("Active", paceScroll);
+		tabs.addTab("Average", paceScroll);
 		tabs.setToolTipTextAt(0, "Recent raid vs your average");
-		tabs.addTab("Target", reading(targetTimes));
+		targetTimes.setAlignmentX(Component.LEFT_ALIGNMENT);
+		targetGraph.setAlignmentX(Component.LEFT_ALIGNMENT);
+		targetColumn.add(targetTimes);
+		targetColumn.add(targetGraph);
+		targetScroll.setBorder(BorderFactory.createEmptyBorder());
+		targetScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+		targetScroll.getViewport().setBackground(new Color(24, 24, 24));
+		tabs.addTab("Target", targetScroll);
 		tabs.setToolTipTextAt(1, "Recent raid vs your targets");
-		tabs.addTab("Bests", reading(bestTimes));
+		tabs.addTab("Best", reading(bestTimes));
 		tabs.setToolTipTextAt(2, "Fastest split, points, and PPH in this filter");
 		tabs.addTab("Purples", reading(purplePanel));
 		tabs.setToolTipTextAt(3, "Every logged raid");
@@ -162,6 +172,14 @@ public class CoxGrindPanel extends PluginPanel
 		{
 			rememberFilters();
 			reload();
+		});
+		bestTimes.setChoices(new String[] {"Splits", "Raid time", "PPH"}, 0, new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				paintRest();
+			}
 		});
 		accountHash = store.latestAccountHash();
 		reload();
@@ -215,6 +233,10 @@ public class CoxGrindPanel extends PluginPanel
 				{
 					refreshCache();
 					paintRest();
+				}
+				else
+				{
+					paintTarget();
 				}
 				paintPace();
 			}
@@ -325,8 +347,9 @@ public class CoxGrindPanel extends PluginPanel
 			RaidModeFilter mode = (RaidModeFilter) modeBox.getSelectedItem();
 			RaidSizeFilter size = (RaidSizeFilter) sizeBox.getSelectedItem();
 			ReportOptions options = reportOptions();
-			targets = RaidReportFormatter.targetView(cachedRaids, mode, size, options);
-			bests = RaidReportFormatter.bestView(cachedRaids, mode, size, options);
+			CoxRaidRecord subject = live ? liveRaid : null;
+			targets = RaidReportFormatter.targetView(cachedRaids, mode, size, options, subject, liveOpenSeconds, live && liveInProgress);
+			bests = RaidReportFormatter.bestView(cachedRaids, mode, size, options, bestFocus());
 			if (cachedRaids.isEmpty())
 			{
 				purplePanel.showNotice("No completed raids logged yet.");
@@ -346,8 +369,45 @@ public class CoxGrindPanel extends PluginPanel
 			bests = targets;
 			purplePanel.showNotice("Could not read the log.");
 		}
+		JScrollBar bar = targetScroll.getVerticalScrollBar();
+		int value = bar.getValue();
+		boolean followEnd = value + bar.getVisibleAmount() >= bar.getMaximum() - 24;
 		targetTimes.show(targets);
+		targetGraph.setEmptyText(graphNotice(targets.getText()));
+		targetGraph.setPoints(targets.getPoints());
+		targetColumn.revalidate();
+		targetScroll.revalidate();
+		SwingUtilities.invokeLater(new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				JScrollBar again = targetScroll.getVerticalScrollBar();
+				again.setValue(followEnd ? again.getMaximum() : value);
+			}
+		});
 		bestTimes.show(bests);
+	}
+
+	private void paintTarget()
+	{
+		RaidReportFormatter.PaceComparison targets;
+		try
+		{
+			RaidModeFilter mode = (RaidModeFilter) modeBox.getSelectedItem();
+			RaidSizeFilter size = (RaidSizeFilter) sizeBox.getSelectedItem();
+			CoxRaidRecord subject = live ? liveRaid : null;
+			targets = RaidReportFormatter.targetView(cachedRaids, mode, size, reportOptions(), subject, liveOpenSeconds, live && liveInProgress);
+		}
+		catch (RuntimeException ex)
+		{
+			targets = new RaidReportFormatter.PaceComparison("Could not read the log.\n", java.util.Collections.<RaidReportFormatter.PacePoint>emptyList());
+		}
+		targetTimes.show(targets);
+		targetGraph.setEmptyText(graphNotice(targets.getText()));
+		targetGraph.setPoints(targets.getPoints());
+		targetColumn.revalidate();
+		targetScroll.revalidate();
 	}
 
 	private void restoreFilters()
@@ -456,18 +516,18 @@ public class CoxGrindPanel extends PluginPanel
 		options.setOutliers(config.showOutliers());
 		TargetStyle style = options.getTargetStyle();
 		style.setUseTbow(config.useTbow());
-		style.setNoTbowVanguards(config.noTbowVanguards());
-		style.setNoTbowVasa(config.noTbowVasa());
-		style.setNoTbowMystics(config.noTbowMystics());
-		style.setNoTbowMuttadiles(config.noTbowMuttadiles());
-		style.setNoTbowTightrope(config.noTbowTightrope());
-		style.setNoTbowOlmHead(config.noTbowOlmHead());
+		style.setSlayerHelm(config.slayerHelm());
+		style.setLockpick(config.lockpick());
+		style.setAxe(config.axe());
+		style.setSalve(config.salve());
+		style.setPreVeng(config.preVeng());
+		style.setVespPotSkip(config.vespPotSkip());
+		style.setCrabTank(config.crabTank());
 		style.setIceMilking(config.iceMilking());
 		style.setIceMilkSeconds(config.iceMilkSeconds());
 		style.setKillRope(config.killRope());
-		style.setKillRopeSeconds(config.killRopeSeconds());
 		style.setMilkVespula(config.milkVespula());
-		style.setMilkVespulaSeconds(config.milkVespulaSeconds());
+		style.setOverThieve(config.overThieve());
 		return options;
 	}
 
@@ -488,6 +548,41 @@ public class CoxGrindPanel extends PluginPanel
 			return 10;
 		}
 		return Math.min(value, 100);
+	}
+
+	private String bestFocus()
+	{
+		int index = bestTimes.getChoice();
+		if (index == 1)
+		{
+			return "raid";
+		}
+		if (index == 2)
+		{
+			return "pph";
+		}
+		return "fastest";
+	}
+
+	private static String graphNotice(String text)
+	{
+		if (text == null)
+		{
+			return "Set targets in plugin settings.";
+		}
+		if (text.startsWith("No completed") || text.startsWith("No raids"))
+		{
+			return "No raids in this filter.";
+		}
+		if (text.startsWith("Pick Regular"))
+		{
+			return "Pick Regular, Regular full, or CM.";
+		}
+		if (text.startsWith("Could not"))
+		{
+			return "Could not read the log.";
+		}
+		return "Set targets in plugin settings.";
 	}
 
 	private JScrollPane reading(ActiveTimes list)
@@ -537,8 +632,13 @@ public class CoxGrindPanel extends PluginPanel
 	 */
 	private final class PaceColumn extends JPanel implements Scrollable
 	{
-		private PaceColumn()
+		private final ActiveTimes list;
+		private final PaceGraph graph;
+
+		private PaceColumn(ActiveTimes list, PaceGraph graph)
 		{
+			this.list = list;
+			this.graph = graph;
 			setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
 			setOpaque(true);
 			setBackground(new Color(24, 24, 24));
@@ -548,13 +648,13 @@ public class CoxGrindPanel extends PluginPanel
 		public Dimension getPreferredSize()
 		{
 			int width = columnWidth();
-			int listHeight = activeTimes.preferredHeight(width);
-			Dimension list = new Dimension(width, listHeight);
-			activeTimes.setPreferredSize(list);
-			activeTimes.setMinimumSize(list);
-			activeTimes.setMaximumSize(new Dimension(Integer.MAX_VALUE, listHeight));
-			activeTimes.setSize(list);
-			int graphHeight = paceGraph.getPreferredSize().height;
+			int listHeight = list.preferredHeight(width);
+			Dimension size = new Dimension(width, listHeight);
+			list.setPreferredSize(size);
+			list.setMinimumSize(size);
+			list.setMaximumSize(new Dimension(Integer.MAX_VALUE, listHeight));
+			list.setSize(size);
+			int graphHeight = graph.getPreferredSize().height;
 			return new Dimension(width, listHeight + graphHeight);
 		}
 

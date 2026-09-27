@@ -2,6 +2,7 @@ package com.coxgrind.ui;
 
 import com.coxgrind.report.RaidReportFormatter;
 import java.awt.Color;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.FontMetrics;
@@ -49,10 +50,16 @@ public class ActiveTimes extends JPanel implements Scrollable
 	private List<RaidReportFormatter.TimeRow> rows = Collections.emptyList();
 	private String badge = "";
 	private Color badgeColor = MUTED;
-	private String caption = "vs average";
+	private String caption = "";
 	private boolean goldTimes;
 	private boolean againstTarget;
+	private String note = "";
 	private int[] rowTop = new int[0];
+	private String[] choices = new String[0];
+	private int choice;
+	private Runnable onChoice;
+	private int[] choiceX = new int[0];
+	private int[] choiceW = new int[0];
 
 	public ActiveTimes()
 	{
@@ -63,9 +70,39 @@ public class ActiveTimes extends JPanel implements Scrollable
 			@Override
 			public void mouseMoved(MouseEvent event)
 			{
-				setToolTipText(tipAt(event.getY()));
+				int index = choiceAt(event.getX(), event.getY());
+				setCursor(index >= 0 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
+				setToolTipText(index >= 0 ? choiceTip(index) : tipAt(event.getY()));
 			}
 		});
+		addMouseListener(new MouseAdapter()
+		{
+			@Override
+			public void mouseClicked(MouseEvent event)
+			{
+				int index = choiceAt(event.getX(), event.getY());
+				if (index < 0 || index == choice || onChoice == null)
+				{
+					return;
+				}
+				choice = index;
+				onChoice.run();
+			}
+		});
+	}
+
+	/** Small titles in the header. Used by the Bests list to switch what is shown. */
+	public void setChoices(String[] labels, int selected, Runnable listener)
+	{
+		choices = labels == null ? new String[0] : labels;
+		choice = selected;
+		onChoice = listener;
+		repaint();
+	}
+
+	public int getChoice()
+	{
+		return choice;
 	}
 
 	public void show(RaidReportFormatter.PaceComparison pace)
@@ -78,6 +115,7 @@ public class ActiveTimes extends JPanel implements Scrollable
 			caption = "";
 			goldTimes = false;
 			againstTarget = false;
+			note = "";
 		}
 		else
 		{
@@ -86,6 +124,7 @@ public class ActiveTimes extends JPanel implements Scrollable
 			caption = pace.getCaption();
 			goldTimes = pace.isGoldTimes();
 			againstTarget = pace.isAgainstTarget();
+			note = pace.getNote();
 			if (pace.isInProgress() && pace.getKc() <= 0)
 			{
 				badge = "In progress";
@@ -119,9 +158,9 @@ public class ActiveTimes extends JPanel implements Scrollable
 	{
 		if (notice != null)
 		{
-			return 22;
+			return choices.length == 0 ? 22 : 36;
 		}
-		return 18 + cardHeight();
+		return 18 + cardHeight() + (note.isEmpty() ? 0 : 28);
 	}
 
 	@Override
@@ -134,9 +173,10 @@ public class ActiveTimes extends JPanel implements Scrollable
 		g.fillRect(0, 0, getWidth(), getHeight());
 		if (notice != null)
 		{
+			paintChoices(g);
 			g.setFont(NAME);
 			g.setColor(INK);
-			g.drawString(notice, 8, 16);
+			g.drawString(notice, 8, choices.length == 0 ? 16 : 30);
 			rowTop = new int[0];
 			g.dispose();
 			return;
@@ -148,15 +188,28 @@ public class ActiveTimes extends JPanel implements Scrollable
 		{
 			g.drawString(badge, 8, 12);
 		}
-		g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-		g.setColor(MUTED);
-		int captionX = getWidth() - 8 - g.getFontMetrics().stringWidth(caption);
-		if (!caption.isEmpty())
+		if (choices.length == 0)
 		{
-			g.drawString(caption, Math.max(8 + g.getFontMetrics(BADGE).stringWidth(badge) + 8, captionX), 12);
+			g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+			g.setColor(MUTED);
+			int captionX = getWidth() - 8 - g.getFontMetrics().stringWidth(caption);
+			if (!caption.isEmpty())
+			{
+				g.drawString(caption, Math.max(8 + g.getFontMetrics(BADGE).stringWidth(badge) + 8, captionX), 12);
+			}
+		}
+		else
+		{
+			paintChoices(g);
 		}
 
-		int cardTop = 16;
+		int cardTop = 16 + (note.isEmpty() ? 0 : 26);
+		if (!note.isEmpty())
+		{
+			g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+			g.setColor(MUTED);
+			g.drawString(clip(g.getFontMetrics(), note, Math.max(20, getWidth() - 16)), 8, 28);
+		}
 		int cardHeight = cardHeight();
 		int cardWidth = Math.max(20, getWidth() - 8);
 		g.setColor(CARD);
@@ -272,6 +325,67 @@ public class ActiveTimes extends JPanel implements Scrollable
 			height += ROW;
 		}
 		return height;
+	}
+
+	private void paintChoices(Graphics2D g)
+	{
+		if (choices.length == 0)
+		{
+			choiceX = new int[0];
+			choiceW = new int[0];
+			return;
+		}
+		g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+		FontMetrics plain = g.getFontMetrics();
+		g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+		FontMetrics bold = g.getFontMetrics();
+		choiceX = new int[choices.length];
+		choiceW = new int[choices.length];
+		int x = getWidth() - 8;
+		for (int i = choices.length - 1; i >= 0; i--)
+		{
+			int width = i == choice ? bold.stringWidth(choices[i]) : plain.stringWidth(choices[i]);
+			x -= width;
+			choiceX[i] = x;
+			choiceW[i] = width;
+			g.setFont(i == choice ? new Font(Font.SANS_SERIF, Font.BOLD, 11) : new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+			g.setColor(i == choice ? INK : MUTED);
+			g.drawString(choices[i], x, 12);
+			x -= 10;
+		}
+	}
+
+	private int choiceAt(int x, int y)
+	{
+		if (y > 16 || choiceX.length != choices.length)
+		{
+			return -1;
+		}
+		for (int i = 0; i < choiceX.length; i++)
+		{
+			if (x >= choiceX[i] && x <= choiceX[i] + choiceW[i])
+			{
+				return i;
+			}
+		}
+		return -1;
+	}
+
+	private String choiceTip(int index)
+	{
+		if (index < 0 || index >= choices.length)
+		{
+			return null;
+		}
+		if ("Raid time".equals(choices[index]))
+		{
+			return "Fastest raid and its splits";
+		}
+		if ("PPH".equals(choices[index]))
+		{
+			return "Highest points per hour";
+		}
+		return "Fastest split in this filter";
 	}
 
 	private String tipAt(int y)

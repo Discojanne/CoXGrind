@@ -33,12 +33,31 @@ public class PaceGraph extends JPanel
 	private static final Color CYAN = new Color(80, 210, 255);
 	private static final Stroke DASH = new BasicStroke(1f, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 1f, new float[] {4f, 3f}, 0f);
 	private static final int HEIGHT = 174;
+	private static final int TARGET_HEIGHT = 156;
 
+	private final boolean personalBest;
+	private String emptyText = "Need another raid in this filter.";
 	private List<RaidReportFormatter.PacePoint> points = Collections.emptyList();
 	private int[] pointX = new int[0];
 
 	public PaceGraph()
 	{
+		this(true);
+	}
+
+	/** Pace against the target sheet. The middle line is on target. There is no personal-best line. */
+	public static PaceGraph againstTarget()
+	{
+		return new PaceGraph(false);
+	}
+
+	private PaceGraph(boolean personalBest)
+	{
+		this.personalBest = personalBest;
+		if (!personalBest)
+		{
+			emptyText = "Set targets in plugin settings.";
+		}
 		setOpaque(true);
 		setBackground(PAPER);
 		setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
@@ -50,6 +69,11 @@ public class PaceGraph extends JPanel
 				setToolTipText(tip(event.getX()));
 			}
 		});
+	}
+
+	public void setEmptyText(String text)
+	{
+		emptyText = text == null || text.isEmpty() ? emptyText : text;
 	}
 
 	public void setPoints(List<RaidReportFormatter.PacePoint> next)
@@ -70,7 +94,7 @@ public class PaceGraph extends JPanel
 	@Override
 	public Dimension getPreferredSize()
 	{
-		return new Dimension(180, HEIGHT);
+		return new Dimension(180, personalBest ? HEIGHT : TARGET_HEIGHT);
 	}
 
 	@Override
@@ -92,7 +116,7 @@ public class PaceGraph extends JPanel
 		if (points.isEmpty())
 		{
 			g.setColor(INK);
-			g.drawString("Need another raid in this filter.", 8, 18);
+			g.drawString(emptyText, 8, 18);
 			g.dispose();
 			return;
 		}
@@ -101,7 +125,7 @@ public class PaceGraph extends JPanel
 		int right = Math.max(left + 20, getWidth() - 8);
 		int top = 8;
 		int line = Math.max(13, g.getFontMetrics().getHeight());
-		int bottom = getHeight() - line - 18;
+		int bottom = getHeight() - (personalBest ? line + 18 : line + 4);
 		int averageAhead = averageAhead();
 		int pbFromAverage = -averageAhead;
 		int maxAbs = 24;
@@ -115,7 +139,7 @@ public class PaceGraph extends JPanel
 		int pbY = yAt(pbFromAverage, zeroY, half, maxAbs);
 		g.setColor(AXIS);
 		g.drawLine(left, zeroY, right, zeroY);
-		boolean showPb = Math.abs(pbY - zeroY) >= 14;
+		boolean showPb = personalBest && Math.abs(pbY - zeroY) >= 14;
 		if (showPb)
 		{
 			Stroke solid = g.getStroke();
@@ -130,7 +154,7 @@ public class PaceGraph extends JPanel
 		else
 		{
 			g.setColor(INK);
-			g.drawString("PB", 2, labelY(zeroY, top, bottom));
+			g.drawString(personalBest ? "PB" : "Target", 2, labelY(zeroY, top, bottom));
 		}
 
 		int previousX = 0;
@@ -145,7 +169,7 @@ public class PaceGraph extends JPanel
 			pointX[i] = x;
 			if (i > 0)
 			{
-				g.setColor(colorFor(fromAverage, points.get(i).getAheadSeconds()));
+				g.setColor(pointColor(fromAverage, points.get(i).getAheadSeconds(), points.get(i).isFlat()));
 				g.drawLine(previousX, previousY, x, y);
 			}
 			previousX = x;
@@ -155,16 +179,24 @@ public class PaceGraph extends JPanel
 		{
 			int fromAverage = points.get(i).getAheadSeconds() - averageAhead;
 			int y = yAt(fromAverage, zeroY, half, maxAbs);
-			g.setColor(colorFor(fromAverage, points.get(i).getAheadSeconds()));
+			g.setColor(pointColor(fromAverage, points.get(i).getAheadSeconds(), points.get(i).isFlat()));
 			g.fillOval(pointX[i] - 3, y - 3, 6, 6);
 		}
 
 		RaidReportFormatter.PacePoint last = points.get(points.size() - 1);
 		int fromAverage = last.getAheadSeconds() - averageAhead;
-		g.setColor(averageColor(fromAverage));
-		g.drawString(compared(last.getLabel(), fromAverage, "average"), 4, getHeight() - line - 2);
-		g.setColor(pbColor(last.getAheadSeconds()));
-		g.drawString(compared(last.getLabel(), last.getAheadSeconds(), "PB"), 4, getHeight() - 2);
+		if (personalBest)
+		{
+			g.setColor(averageColor(fromAverage));
+			g.drawString(compared(last.getLabel(), fromAverage, "average"), 4, getHeight() - line - 2);
+			g.setColor(pbColor(last.getAheadSeconds()));
+			g.drawString(compared(last.getLabel(), last.getAheadSeconds(), "PB"), 4, getHeight() - 2);
+		}
+		else
+		{
+			g.setColor(averageColor(fromAverage));
+			g.drawString(compared(last.getLabel(), fromAverage, "target"), 4, getHeight() - 2);
+		}
 		g.dispose();
 	}
 
@@ -197,6 +229,10 @@ public class PaceGraph extends JPanel
 		}
 		RaidReportFormatter.PacePoint point = points.get(nearest);
 		int fromAverage = point.getAheadSeconds() - averageAhead();
+		if (!personalBest)
+		{
+			return compared(point.getLabel(), fromAverage, "target");
+		}
 		return "<html>" + compared(point.getLabel(), fromAverage, "average")
 			+ "<br>" + compared(point.getLabel(), point.getAheadSeconds(), "PB") + "</html>";
 	}
@@ -226,6 +262,19 @@ public class PaceGraph extends JPanel
 			pace = "even with " + target;
 		}
 		return label + "  " + pace;
+	}
+
+	private Color pointColor(int secondsFromAverage, int aheadOfPb, boolean flat)
+	{
+		if (flat)
+		{
+			return AXIS;
+		}
+		if (!personalBest)
+		{
+			return averageColor(secondsFromAverage);
+		}
+		return colorFor(secondsFromAverage, aheadOfPb);
 	}
 
 	private static Color colorFor(int secondsFromAverage, int aheadOfPb)

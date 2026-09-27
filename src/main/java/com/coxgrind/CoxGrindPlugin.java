@@ -1,10 +1,15 @@
 package com.coxgrind;
 
 import com.coxgrind.log.RaidLogStore;
+import com.coxgrind.log.VanguardLogStore;
 import com.coxgrind.model.CoxRaidRecord;
+import com.coxgrind.model.VanguardSample;
 import com.coxgrind.track.CoxRaidSession;
 import com.coxgrind.track.OlmNpcs;
 import com.coxgrind.track.RaidChat;
+import com.coxgrind.track.VanguardNpcs;
+import com.coxgrind.track.VanguardTracker;
+import com.coxgrind.ui.ConfigItemIcons;
 import com.coxgrind.ui.CoxGrindPanel;
 import com.google.inject.Provides;
 import java.awt.Color;
@@ -19,12 +24,17 @@ import net.runelite.api.Actor;
 import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
+import net.runelite.api.HitsplatID;
 import net.runelite.api.NPC;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
+import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.NpcChanged;
+import net.runelite.api.events.NpcDespawned;
 import net.runelite.api.events.NpcSpawned;
 import net.runelite.api.events.VarbitChanged;
 import net.runelite.api.gameval.VarPlayerID;
@@ -54,6 +64,8 @@ public class CoxGrindPlugin extends Plugin
 	static final int RAID_TIMER = 6386;
 	/** Players in the current raid party, including you. */
 	static final int PARTY_SIZE = 5424;
+	/** Live Challenge Mode flag. The saved raid still uses the kill-count sentence. */
+	static final int CHALLENGE_MODE = 6385;
 
 	@Inject
 	private Client client;
@@ -75,9 +87,12 @@ public class CoxGrindPlugin extends Plugin
 
 	private final CoxRaidSession session = new CoxRaidSession();
 	private final RaidLogStore store = new RaidLogStore(RaidLogStore.defaultRoot());
+	private final VanguardTracker vanguards = new VanguardTracker();
+	private final VanguardLogStore vanguardStore = new VanguardLogStore(RaidLogStore.defaultRoot());
 
 	private CoxGrindPanel panel;
 	private NavigationButton navButton;
+	private ConfigItemIcons configIcons;
 	/** Ticks to wait for the kill-count chat line before writing the raid anyway. */
 	private static final int SAVE_WAIT_TICKS = 40;
 
@@ -105,6 +120,8 @@ public class CoxGrindPlugin extends Plugin
 			.panel(panel)
 			.build();
 		clientToolbar.addNavigation(navButton);
+		configIcons = new ConfigItemIcons(itemManager);
+		configIcons.start();
 		clientThread.invokeLater(this::refreshAccount);
 	}
 
@@ -114,6 +131,10 @@ public class CoxGrindPlugin extends Plugin
 		try
 		{
 			// Same flush as the login screen. A zero hash would write account-0.json, so skip it.
+			if (client.getAccountHash() != 0)
+			{
+				saveVanguard(vanguards.finish(false, timerUnits()));
+			}
 			if (session.isComplete() && !session.isSaved() && client.getAccountHash() != 0)
 			{
 				writeRaid();
@@ -121,6 +142,11 @@ public class CoxGrindPlugin extends Plugin
 		}
 		finally
 		{
+			if (configIcons != null)
+			{
+				configIcons.stop();
+				configIcons = null;
+			}
 			if (navButton != null)
 			{
 				clientToolbar.removeNavigation(navButton);
@@ -144,6 +170,7 @@ public class CoxGrindPlugin extends Plugin
 		else if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
 			sawPlayer = false;
+			saveVanguard(vanguards.finish(false, timerUnits()));
 			if (session.isComplete() && !session.isSaved())
 			{
 				writeRaid();
@@ -170,6 +197,18 @@ public class CoxGrindPlugin extends Plugin
 		if (session.isRunning() && !session.isComplete() && !session.isSaved())
 		{
 			publishLive();
+		}
+		if (watchingVanguards())
+		{
+			for (NPC npc : client.getNpcs())
+			{
+				String style = VanguardNpcs.style(npc.getId());
+				if (style != null && npc.getHealthScale() > 0)
+				{
+					vanguards.seen(style, npc.getHealthRatio(), npc.getHealthScale());
+				}
+			}
+			vanguards.tick();
 		}
 		if (!session.isComplete() || session.isSaved() || saveWaitTicks <= 0)
 		{
@@ -199,6 +238,7 @@ public class CoxGrindPlugin extends Plugin
 		inRaid = event.getValue() == 1;
 		if (!inRaid && session.isRunning() && !session.isComplete())
 		{
+			saveVanguard(vanguards.finish(false, timerUnits()));
 			session.reset();
 			saveWaitTicks = 0;
 			earlyKillCount = null;
@@ -226,14 +266,59 @@ public class CoxGrindPlugin extends Plugin
 	@Subscribe
 	public void onNpcSpawned(NpcSpawned event)
 	{
-		if (!trackingOlm())
-		{
-			return;
-		}
-		if (OlmNpcs.isMageHand(event.getNpc().getId()))
+		NPC npc = event.getNpc();
+		if (trackingOlm() && OlmNpcs.isMageHand(npc.getId()))
 		{
 			session.olmPhaseStarted(timerUnits());
 			publishLive();
+		}
+		vanguardSpawned(npc);
+	}
+
+	@Subscribe
+	public void onNpcChanged(NpcChanged event)
+	{
+		NPC npc = event.getNpc();
+		String style = VanguardNpcs.style(npc.getId());
+		if (style != null)
+		{
+			vanguardSpawned(npc);
+			return;
+		}
+		if (npc.getId() == VanguardNpcs.WALKING && event.getOld() != null)
+		{
+			String from = VanguardNpcs.style(event.getOld().getId());
+			if (from != null)
+			{
+				vanguardDig(from, npc);
+			}
+		}
+	}
+
+	@Subscribe
+	public void onNpcDespawned(NpcDespawned event)
+	{
+		if (!watchingVanguards())
+		{
+			return;
+		}
+		if (VanguardNpcs.style(event.getNpc().getId()) != null)
+		{
+			vanguards.combatGone();
+		}
+	}
+
+	@Subscribe
+	public void onHitsplatApplied(HitsplatApplied event)
+	{
+		if (!watchingVanguards() || !(event.getActor() instanceof NPC))
+		{
+			return;
+		}
+		NPC npc = (NPC) event.getActor();
+		if (VanguardNpcs.isVanguard(npc.getId()) && event.getHitsplat().getHitsplatType() == HitsplatID.HEAL)
+		{
+			vanguards.heal();
 		}
 	}
 
@@ -290,11 +375,24 @@ public class CoxGrindPlugin extends Plugin
 				{
 					writeRaid();
 				}
+				saveVanguard(vanguards.finish(false, timerUnits()));
 				earlyKillCount = null;
 				saveWaitTicks = 0;
 				purpleListOpen = false;
 				session.startRaid();
 				session.setTeamSize(partySize());
+				if (config.trackVanguards())
+				{
+					vanguards.startRaid(Instant.now().truncatedTo(ChronoUnit.SECONDS).toString(), partySize());
+					if (client.getVarbitValue(CHALLENGE_MODE) != 0)
+					{
+						vanguards.allowChallengeMode();
+					}
+				}
+				else
+				{
+					vanguards.discard();
+				}
 				return;
 			}
 
@@ -345,11 +443,20 @@ public class CoxGrindPlugin extends Plugin
 			if (RaidChat.isPlayerDeath(message))
 			{
 				session.recordDeath();
+				vanguards.noteDeaths(session.snapshot().getDeaths());
 			}
 
 			RaidChat.KillCount count = RaidChat.killCount(message);
 			if (count != null)
 			{
+				if (count.isChallengeMode())
+				{
+					saveVanguard(vanguards.confirm(count.getKc()));
+				}
+				else
+				{
+					dropVanguard(vanguards.discard());
+				}
 				if (session.isComplete())
 				{
 					session.setKillCount(count.getKc(), count.isChallengeMode());
@@ -376,6 +483,11 @@ public class CoxGrindPlugin extends Plugin
 			String room = RaidChat.roomName(message);
 			if (room != null)
 			{
+				if ("Vanguards".equals(room))
+				{
+					vanguards.noteDeaths(session.snapshot().getDeaths());
+					saveVanguard(vanguards.finish(true, timerUnits()));
+				}
 				session.completeRoom(room, timerUnits());
 				return;
 			}
@@ -414,6 +526,109 @@ public class CoxGrindPlugin extends Plugin
 	private boolean trackingOlm()
 	{
 		return session.isRunning() && !session.isComplete();
+	}
+
+	private boolean watchingVanguards()
+	{
+		if (!config.trackVanguards() || !session.isRunning() || session.isComplete())
+		{
+			return false;
+		}
+		if (client.getVarbitValue(CHALLENGE_MODE) != 0)
+		{
+			vanguards.allowChallengeMode();
+		}
+		return vanguards.isChallengeMode();
+	}
+
+	private void vanguardSpawned(NPC npc)
+	{
+		String style = VanguardNpcs.style(npc.getId());
+		if (style == null || !watchingVanguards())
+		{
+			return;
+		}
+		int[] at = center(npc);
+		if (at == null)
+		{
+			return;
+		}
+		if (vanguards.needsContact())
+		{
+			vanguards.contact(
+				Instant.now().truncatedTo(ChronoUnit.SECONDS).toString(),
+				client.getWorld(),
+				partySize(),
+				timerUnits(),
+				session.snapshot().getDeaths());
+		}
+		vanguards.emerge(style, at[0], at[1]);
+	}
+
+	private void vanguardDig(String style, NPC npc)
+	{
+		if (!watchingVanguards())
+		{
+			return;
+		}
+		int[] at = center(npc);
+		if (at == null)
+		{
+			return;
+		}
+		int ratio = npc.getHealthRatio();
+		int scale = npc.getHealthScale();
+		vanguards.dig(style, at[0], at[1], ratio, scale, npc.getAnimation());
+	}
+
+	/** Southwest tile plus the center of a 3x3, or whatever size the composition reports. */
+	private static int[] center(NPC npc)
+	{
+		WorldPoint southwest = npc.getWorldLocation();
+		if (southwest == null)
+		{
+			return null;
+		}
+		int size = 3;
+		if (npc.getComposition() != null && npc.getComposition().getSize() > 0)
+		{
+			size = npc.getComposition().getSize();
+		}
+		int nudge = Math.max(0, (size - 1) / 2);
+		return new int[]{southwest.getX() + nudge, southwest.getY() + nudge};
+	}
+
+	private void saveVanguard(VanguardSample sample)
+	{
+		if (sample == null || client.getAccountHash() == 0)
+		{
+			return;
+		}
+		try
+		{
+			vanguardStore.save(accountHash(), sample);
+			log.info("Logged CoX vanguards world {} kc {} uptimes {}", sample.getWorld(), sample.getKc(), sample.getUptimes().size());
+		}
+		catch (IOException ex)
+		{
+			log.warn("Could not write the CoXGrind vanguard log", ex);
+		}
+	}
+
+	private void dropVanguard(String id)
+	{
+		if (id == null || client.getAccountHash() == 0)
+		{
+			return;
+		}
+		try
+		{
+			vanguardStore.remove(accountHash(), id);
+		}
+		catch (IOException ex)
+		{
+			log.warn("Could not update the CoXGrind vanguard log", ex);
+		}
 	}
 
 	/**

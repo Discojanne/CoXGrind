@@ -25,15 +25,12 @@ public class ComparisonTargets
 		"Vasa",
 		"Mystics",
 		"Muttadiles",
-		"Pre-Olm",
 		"Olm mage hand phase 1",
 		"Olm phase 1",
 		"Olm mage hand phase 2",
 		"Olm phase 2",
 		"Olm phase 3",
 		"Olm head",
-		"Olm",
-		"Raid Completed",
 		"Between room time"
 	));
 

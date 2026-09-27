@@ -161,9 +161,7 @@ public class RaidReportFormatterTest
 		style.setIceMilking(true);
 		style.setIceMilkSeconds(70);
 		style.setKillRope(true);
-		style.setKillRopeSeconds(40);
 		style.setMilkVespula(true);
-		style.setMilkVespulaSeconds(10);
 
 		String report = RaidReportFormatter.format(
 			java.util.Collections.singletonList(raid),
@@ -172,14 +170,15 @@ public class RaidReportFormatterTest
 			options
 		);
 
-		Assert.assertTrue(report.contains("03:00"));
+		Assert.assertTrue(report.contains("03:50"));
 		Assert.assertTrue(report.contains("02:50"));
-		Assert.assertTrue(report.contains("01:50"));
-		Assert.assertTrue(report.contains("01:10"));
+		Assert.assertTrue(report.contains("02:27"));
+		Assert.assertTrue(report.contains("01:18"));
 		Assert.assertTrue(report.contains("00:50"));
 		Assert.assertTrue(report.contains("no twisted bow"));
 		Assert.assertTrue(report.contains("ice milking"));
 		Assert.assertTrue(report.contains("killing rope"));
+		Assert.assertTrue(report.contains("vesp milk"));
 		Assert.assertFalse(report.contains("03:20"));
 	}
 
@@ -315,6 +314,50 @@ public class RaidReportFormatterTest
 		Assert.assertEquals(Integer.valueOf(-150), ahead.get("Start"));
 		Assert.assertEquals(Integer.valueOf(-130), ahead.get("Tekton"));
 		Assert.assertEquals(Integer.valueOf(0), ahead.get("Finish"));
+	}
+
+	@Test
+	public void targetPaceLineMeasuresSecondsAheadOfTheTargets()
+	{
+		CoxRaidRecord recent = raid(true, 1, 50000, 60, "");
+		recent.getSplits().add(1, new RoomSplit("Olm mage hand phase 1", 50));
+		recent.getSplits().add(2, new RoomSplit("Olm phase 1", 100));
+		ReportOptions options = ReportOptions.defaults(10);
+		ComparisonTargets targets = new ComparisonTargets();
+		targets.put(true, "Tekton", 70);
+		targets.put(true, "Olm mage hand phase 1", 40);
+		targets.put(true, "Olm phase 1", 90);
+		targets.put(true, "Olm", 500);
+		targets.put(true, "Raid Completed", 1300);
+		options.setTargets(targets);
+
+		RaidReportFormatter.PaceComparison view = RaidReportFormatter.targetView(
+			Collections.singletonList(recent),
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			options
+		);
+		java.util.Map<String, Integer> ahead = new java.util.LinkedHashMap<>();
+		for (int i = 0; i < view.getPoints().size(); i++)
+		{
+			RaidReportFormatter.PacePoint point = view.getPoints().get(i);
+			ahead.put(point.getLabel(), point.getAheadSeconds());
+		}
+		Assert.assertEquals(Integer.valueOf(0), ahead.get("Start"));
+		Assert.assertEquals(Integer.valueOf(10), ahead.get("Tekton"));
+		Assert.assertEquals(Integer.valueOf(0), ahead.get("mage hand p1"));
+		Assert.assertEquals(Integer.valueOf(0), ahead.get("Olm phase 1"));
+		Assert.assertEquals(Integer.valueOf(-320), ahead.get("Olm"));
+		Assert.assertFalse(ahead.containsKey("Finish"));
+		Assert.assertFalse(view.getPoints().get(2).isFlat());
+
+		RaidReportFormatter.PaceComparison all = RaidReportFormatter.targetView(
+			Collections.singletonList(recent),
+			RaidModeFilter.ALL,
+			RaidSizeFilter.SOLO,
+			options
+		);
+		Assert.assertTrue(all.getPoints().isEmpty());
 	}
 
 	@Test
@@ -514,6 +557,76 @@ public class RaidReportFormatterTest
 		Assert.assertTrue(text.substring(rule + 1).startsWith("-----------------------------"));
 		int between = text.indexOf("Between rooms");
 		Assert.assertTrue(text.substring(text.indexOf('\n', between) + 1).startsWith("-----------------------------"));
+	}
+
+	@Test
+	public void bestRaidAndBestPphAreEachOneRaid()
+	{
+		CoxRaidRecord quicker = raid(true, 1, 40000, 70, "");
+		quicker.setKc(2);
+		quicker.setTotalSeconds(1000);
+		quicker.putSplit("Raid Completed", 1000);
+		CoxRaidRecord richer = raid(true, 1, 80000, 40, "");
+		richer.setKc(8);
+		richer.setTotalSeconds(1500);
+		richer.putSplit("Raid Completed", 1500);
+
+		RaidReportFormatter.PaceComparison rooms = RaidReportFormatter.bestView(
+			Arrays.asList(quicker, richer),
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			ReportOptions.defaults(10),
+			"fastest"
+		);
+		RaidReportFormatter.PaceComparison raid = RaidReportFormatter.bestView(
+			Arrays.asList(quicker, richer),
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			ReportOptions.defaults(10),
+			"raid"
+		);
+		RaidReportFormatter.PaceComparison pph = RaidReportFormatter.bestView(
+			Arrays.asList(quicker, richer),
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			ReportOptions.defaults(10),
+			"pph"
+		);
+
+		Assert.assertEquals("00:40", rowValue(rooms, "Tekton"));
+		Assert.assertEquals("CM 8", rowDiff(rooms, "Tekton"));
+		Assert.assertEquals("01:10", rowValue(raid, "Tekton"));
+		Assert.assertEquals("", rowDiff(raid, "Tekton"));
+		Assert.assertEquals(2, raid.getKc());
+		Assert.assertTrue(raid.isChallengeMode());
+		Assert.assertEquals("16:40", rowValue(raid, "Raid Completed"));
+		Assert.assertEquals("00:40", rowValue(pph, "Tekton"));
+		Assert.assertEquals(8, pph.getKc());
+		Assert.assertEquals("25:00", rowValue(pph, "Raid Completed"));
+	}
+
+	private static String rowValue(RaidReportFormatter.PaceComparison view, String label)
+	{
+		return rowField(view, label, true);
+	}
+
+	private static String rowDiff(RaidReportFormatter.PaceComparison view, String label)
+	{
+		return rowField(view, label, false);
+	}
+
+	private static String rowField(RaidReportFormatter.PaceComparison view, String label, boolean value)
+	{
+		for (int i = 0; i < view.getRows().size(); i++)
+		{
+			RaidReportFormatter.TimeRow row = view.getRows().get(i);
+			if (label.equals(row.getLabel()))
+			{
+				return value ? row.getValue() : row.getDiff();
+			}
+		}
+		Assert.fail(label);
+		return "";
 	}
 
 	private static String lineStarting(String report, String label)

@@ -56,15 +56,12 @@ public final class TargetSettings
 			config.regVasa(),
 			config.regMystics(),
 			config.regMuttadiles(),
-			config.regPreOlm(),
 			config.regOlmMage1(),
 			config.regOlmPhase1(),
 			config.regOlmMage2(),
 			config.regOlmPhase2(),
 			config.regOlmPhase3(),
 			config.regOlmHead(),
-			config.regOlm(),
-			config.regRaidCompleted(),
 			config.regBetweenRooms()
 		};
 	}
@@ -84,15 +81,12 @@ public final class TargetSettings
 			config.cmVasa(),
 			config.cmMystics(),
 			config.cmMuttadiles(),
-			config.cmPreOlm(),
 			config.cmOlmMage1(),
 			config.cmOlmPhase1(),
 			config.cmOlmMage2(),
 			config.cmOlmPhase2(),
 			config.cmOlmPhase3(),
 			config.cmOlmHead(),
-			config.cmOlm(),
-			config.cmRaidCompleted(),
 			config.cmBetweenRooms()
 		};
 	}

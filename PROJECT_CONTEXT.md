@@ -1,6 +1,6 @@
 # CoXGrind project context
 
-Handoff for the next agent. Read this before changing the plugin. Launch steps for the owner are in `README.md`. That README matches the current panel: one row of filters and buttons, then one row of tabs: Active, Target, Bests, Purples. Targets live in the plugin settings. Trust this file and the code if they disagree.
+Handoff for the next agent. Read this before changing the plugin. Launch steps for the owner are in `README.md`. That README matches the current panel: one row of filters and buttons, then one row of tabs: Average, Target, Best, Purples. Targets live in the plugin settings. Trust this file and the code if they disagree.
 
 Do not name the owner, the character, teammates, the account hash, the home folder, or a raid id in README, this file, commits, or anything that could be published. Say "the owner" and "the local player". Paths are `%USERPROFILE%` or "this repo". Work on this Windows PC only. Do not use Cursor Origin, WSL, or a cloud agent unless the owner explicitly asks. Prefer normal `git` and GitHub.
 
@@ -17,8 +17,8 @@ Coxparser features now in the report, from the JSON log:
 
 - Time table with best, average, recent, and Last N
 - Manual comparison targets (Regular and CM sheets), not another player's log file
-- The Active tab follows the raid in progress. It clears when a raid starts and adds each split against your filtered average. The list is drawn, not monospace: a kill-count line, then Rooms, Olm, and Finish groups. The time and the colored difference stay in two columns on the right. Mage hand prints as Mage P1, and Olm phase 1 prints as Olm P1. A quiet line follows the upper floor and the middle floor, after Shamans and after Tightrope when those rooms are present. The list stays short enough that the graph fits without a scrollbar. Target and Bests use the same drawn list. Hovering PPH says points per hour. The graph under the list is one pace line centered on your average pace. The personal best is a second line above that, the time still to gain. Above the average line means this raid is ahead of that average. Past the PB line the point is gold. Mage hand is not a point, because that time is already inside the phase. Phase points are replaced by the single Olm point when Olm ends. A finished raid's last point is your PB minus the actual finish. Leaving before the raid ends returns the tab to the latest saved raid. Two captions sit under the graph: one against the average, one against the PB.
-- Bests tab: fastest valid split for each room in the current filter, plus Pre-Olm, Between rooms, Total Points, and PPH, with that raid's KC. Times are gold and start in the same column as Active and Target. Points and PPH use the highest value. There is no title line.
+- The Average tab follows the raid in progress. It clears when a raid starts and adds each split against your filtered average. The list is drawn, not monospace: a kill-count line, then Rooms, Olm, and Finish groups. The time and the colored difference stay in two columns on the right. Mage hand prints as Mage P1, and Olm phase 1 prints as Olm P1. A quiet line follows the upper floor and the middle floor, after Shamans and after Tightrope when those rooms are present. The list stays short enough that the graph fits without a scrollbar. Target and Best use the same drawn list. Hovering PPH says points per hour. The graph under the list is one pace line centered on your average pace. The personal best is a second line above that, the time still to gain. Above the average line means this raid is ahead of that average. Past the PB line the point is gold. Mage hand is not a point, because that time is already inside the phase. Phase points are replaced by the single Olm point when Olm ends. A finished raid's last point is your PB minus the actual finish. Leaving before the raid ends returns the tab to the latest saved raid. Two captions sit under the graph: one against the average, one against the PB. The Target tab has the same graph under its list. That line is seconds ahead of the target sheet. The middle is on target, labeled Target. There is no personal-best line. One caption sits under it, against the target. The same color cuts apply, measured from the target. A point above the line is ahead of the targets. Start is on the target. Finish, when the raid target is set, is that target minus the actual finish.
+- Best tab: three small titles in the header, Splits, Raid time, and PPH. Splits is the fastest valid split for each room in the current filter, plus Pre-Olm, Between rooms, Total Points, and PPH, with that raid's KC. Times are gold and start in the same column as Average and Target. Points and PPH use the highest value. There is no title line. Raid time is the single fastest finish, with that raid's own splits and its kill count as the badge. PPH is the single highest points-per-hour raid, shown the same way.
 - Room points-per-hour, most common prep rooms, 5-room / 6-room / other counts
 - Discarded-outlier list, printed last in the full report
 - Logged death count, plus the old points-based death estimate
@@ -28,6 +28,8 @@ Coxparser features now in the report, from the JSON log:
 Left in Coxparser on purpose: a live join of the two old log sources, League filtering, lifetime untracked-KC guesses, hand-typed lifetime item counts, and the pre/post drop-rate split. A one-time read of those old files, for the post-update window only, is already in the JSON log. Do not repeat it unless the owner asks.
 
 V1 is passive analytics only. No game-screen overlay, no prayer helper, no tile or stand markers, no attack prediction, no auto-typing, and no combat advice. Stay inside Jagex third-party client rules and the RuneLite rejected-features policy. Reimplement behavior. Do not copy Plugin Hub source into this repo. Both reference plugins are BSD 2-Clause; attribute them only if substantial code is actually reused. None has been reused so far.
+
+Track Vanguards is a private side study. It is not part of the panel, the raid report, or the product described above. The checkbox defaults off. Leave it off, leave it out of the README, and do not turn the file into an overlay, a prediction, or tick-fill advice.
 
 ## Where the project lives
 
@@ -132,25 +134,32 @@ On 2026-09-24 the owner looked at a card layout for the Purples tab and asked fo
 
 The owner also asked for a faint line on the Active graph, the steady climb from the start to the personal best. It was drawn, they said it looked buggy, and it was removed on 2026-09-24. Dots are one per room again. There is no pace-angle line. Do not put that line back. Do not claim they have looked at the graph since it was removed.
 
-On 2026-09-24 the owner looked at the drawn Active, Target, and Bests lists and said they look good. Those three tabs share `ActiveTimes`. The time and the comparison are two columns on the right. The section over the prep rooms is Rooms. A quiet line follows the upper floor and the middle floor. Mage hand shows as Mage P1, and Olm phase 1 shows as Olm P1. Hovering PPH says points per hour. The four tabs are equal width and fill the row. Do not put Active, Target, or Bests back on monospace. Do not add room icons.
+On 2026-09-24 the owner looked at the drawn Active, Target, and Bests lists and said they look good. Those three tabs share `ActiveTimes`. The time and the comparison are two columns on the right. The section over the prep rooms is Rooms. A quiet line follows the upper floor and the middle floor. Mage hand shows as Mage P1, and Olm phase 1 shows as Olm P1. Hovering PPH says points per hour. The four tabs are equal width and fill the row. Do not put Active, Target, or Bests back on monospace. Do not add room icons to those lists.
+
+On 2026-09-25 the owner set the CM Tekton default to 1:10 and split the target adjustments into Items, Strategies, and Money run. `gradlew.bat test` passed. The saved profile's `coxgrind.cmTekton` is `1:10`, and every Money run box in that profile is false. The owner looked at the settings and confirmed the Money run boxes were unticked. The first settings-icon pass showed no sprites. Do not claim they have seen sprites since the attach fix.
+
+On 2026-09-26 the owner added Crab tank under Strategies. It defaults on. Off adds 4 seconds to Crabs, which takes the CM Crabs target from 0:56 to 1:00. Over-thieve now adds 7 seconds to Thieving. Do not claim the owner has seen the Crab tank box yet.
 
 `gradlew.bat test` passed on 2026-09-24 after pet, kit, and dust were stored on `extras`, and again after the README and this file stopped naming the owner and the character. Do not claim a live pet, kit, or dust has been caught.
 
 Still not verified on a live raid:
+
+- The Vanguard side study on a live raid. `gradlew.bat test` covers the checkbox path, the `vanguards-` file, and the tick counts. A live Challenge Mode room has not confirmed the walking-form transition, the heal hitsplat, or that the compass letters match the three holes.
 
 - Which signal stored the deaths on KC 219, KC 220, and KC 221. The chat line and the death varbit are both still unconfirmed as the source.
 - A pet, kit, or dust written to `extras` after 2026-09-24. Old raids do not have that field. Do not backfill it.
 - Game object `29881`.
 - A purple caught by the two-line reader after 2026-09-24.
 - The owner looking at the graph after the pace-angle line was removed. `gradlew.bat test` covers the pace points. The points are still seconds ahead of the PB. `Start` is still `PB - average raid time`, and that value is where the average line sits. The graph draws the middle on that value and draws the PB at 0. Do not pin the axis back on the PB. A finish slower than the average is below the middle line, and the scale grows so that point stays in the plot.
+- Settings item sprites after the 2026-09-25 attach fix. The owner saw the CoXGrind settings page with no sprites on the first pass.
 
 If a finished raid does not appear, check the developer client log for `Logged CoX raid` and for `CoXGrind could not read a raid message`. Then compare the actual chat line and NPC ids with `RaidChat` and `OlmNpcs`.
 
 ## Runtime behavior
 
-`CoxGrindPlugin` is the only class that touches the RuneLite client. Everything else is plain Java so tests do not need a client.
+`CoxGrindPlugin` is the only class that subscribes to game events. `PurplePanel` and `ConfigItemIcons` call `ItemManager` for sprites. Those tests do not start a client.
 
-On startup the plugin adds a sidebar button: purple 16x16 icon, white "C", tooltip "CoXGrind", priority 7. The panel is `CoxGrindPanel`. There is no overlay manager registration.
+On startup the plugin adds a sidebar button: purple 16x16 icon, white "C", tooltip "CoXGrind", priority 7. The panel is `CoxGrindPanel`. The same startup starts `ConfigItemIcons`, and shutdown stops it. There is no overlay manager registration.
 
 ### Raid lifecycle
 
@@ -315,16 +324,16 @@ The panel does not wait for login and does not show the player name. On startup 
 - Size filter: All, Solo (team size 1), Team (team size >= 2). Team size 0 stays in All only
 - Regular is not CM and not a full layout. Regular full is not CM and is a full layout. Both use the regular comparison sheet. CM is Challenge Mode at any layout and uses the CM sheet. All has no comparison column.
 - Nothing sits between the filter row and the tabs. Do not put a status line back there.
-- Tabs, one row, equal width, stretched across the full panel width so there is no empty gap on the right. Active, Target, Bests, and Purples stay fully visible. The layout is wrap, not a scrolling tab row. FlatLaf needs `JTabbedPane.tabAreaAlignment` set to `fill` as well as `tabWidthMode` `equal`. Hover text, on the tab itself: Active is `This raid vs your average` during a raid and `Recent raid vs your average` otherwise; Target is `Recent raid vs your targets`; Bests is `Fastest split, points, and PPH in this filter`; Purples is `Every logged raid`. Do not put those descriptions back as a line above the list. Target and Bests start on the first row.
-- Active, Target, and Bests use the same drawn list, `ActiveTimes`. The time and the comparison sit in two columns on the right. Target says `vs target`. Bests says `fastest`, times are gold, and the right column is that raid's kill count. Hovering PPH says points per hour. Do not put these three tabs back on monospace. The Purples tab is not monospace either. Do not put it back on monospace. Horizontal scroll is off.
-- Active, Target, and Bests draw a hairline on Pre-Olm, Olm, and Raid Completed, and a quiet floor line after Shamans and after Tightrope. The text methods still print a dashed rule after Pre-Olm, Raid Completed, and Between rooms for the tests. During a live raid, Pre-Olm is not its own row yet. Bests lists the fastest valid split for each room in the current filter, including Pre-Olm, Between rooms, Total Points, and PPH, with that raid's KC in the right column. Time values on Bests are gold. Points and PPH take the highest value. The Purples summary shows Regular and CM as their own cards. Regular is cyan. CM is gold.
+- Tabs, one row, equal width, stretched across the full panel width so there is no empty gap on the right. Average, Target, Best, and Purples stay fully visible. The layout is wrap, not a scrolling tab row. FlatLaf needs `JTabbedPane.tabAreaAlignment` set to `fill` as well as `tabWidthMode` `equal`. Hover text, on the tab itself: Average is `This raid vs your average` during a raid and `Recent raid vs your average` otherwise; Target is `Recent raid vs your targets`; Best is `Fastest split, points, and PPH in this filter`; Purples is `Every logged raid`. Do not put those descriptions back as a line above the list. Target and Best start on the first row.
+- Average, Target, and Best use the same drawn list, `ActiveTimes`. The time and the comparison sit in two columns on the right. There is no `vs average` or `vs target` caption on those lists. Best times are gold, and on Splits the right column is that raid's kill count. Hovering PPH says points per hour. Do not put these three tabs back on monospace. The Purples tab is not monospace either. Do not put it back on monospace. Horizontal scroll is off.
+- Active, Target, and Bests draw a hairline on Pre-Olm, Olm, and Raid Completed, and a quiet floor line after Shamans and after Tightrope. The text methods still print a dashed rule after Pre-Olm, Raid Completed, and Between rooms for the tests. During a live raid, Pre-Olm is not its own row yet. Best has three header titles: Splits, Raid time, and PPH. Splits lists the fastest valid split for each room in the current filter, including Pre-Olm, Between rooms, Total Points, and PPH, with that raid's KC in the right column. Raid time lists the fastest finish and that raid's own splits, with its kill count as the badge. PPH does the same for the highest points-per-hour raid. Time values on Best are gold. Points and PPH take the highest value. The Purples summary shows Regular and CM as their own cards. Regular is cyan. CM is gold.
 - The mode and size filters are saved in the RuneLite profile (`panelMode`, `panelSize`) and restored on the next startup. They are not shown in the plugin settings.
-- The Active list and the pace graph are one column in one scrollbar. The graph starts on the line after the last row. Do not put the graph in its own scroll pane, and do not leave a stretch gap between the list and the graph.
+- The Active list and the pace graph are one column in one scrollbar. The Target list and its target-pace graph use that same column. The graph starts on the line after the last row. Do not put the graph in its own scroll pane, and do not leave a stretch gap between the list and the graph.
 - The list clears when a raid starts and adds each split against the filtered average. `Current` ticks the open segment and has no difference. Leaving before the raid ends shows the latest saved raid again. Challenge Mode is not known until the kill-count line, so the filter the owner picked is the comparison set during the raid.
 - Target is the latest raid in the filter against the matching target sheet. Bests is the fastest valid split per room in that same filter. Active, Target, and Bests follow the filters. Purples does not. The time tabs put the room, the time, and the colored difference on one row. On those tabs `Olm mage hand phase N` shows as `Mage PN`, and `Olm phase N` shows as `Olm PN`. `Between room time` shows as `Between rooms`. The text methods and the full report still use `mage hand pN` and the long Olm phase name.
 - The Purples tab is cards, drawn by `PurplePanel` from `PurpleBoard`. It uses the whole log. The same inset sits on the left and the right, and the panel tracks the sidebar width so a row does not stick out. Section titles collapse. Do not put the word Purple back on those titles. The full report is still plain text and still says Purple Summary, Purple Items, Purple History, and Tracked purples. `purpleView` is that text shape. Tests still read it. The tab does not.
 - Summary cards: Raids, Rate, Regular in cyan, CM in gold, Expected, Actual, Scrolls, Diff, then Dry now, Longest, and Average, then Avg points and Total points. Total points is the sum of personal points above 0. Avg points and Total points use an apostrophe for thousands, so 53999 is 53'999. Do not put the label All points back on this tab.
-- Items are two to a row. Each cell is the RuneLite inventory sprite, the count, and the on-rate difference. Hover the sprite for the item name. Sprites come from `ItemManager`, passed in from `CoxGrindPlugin`. A count of 0 is dim. The difference is green when ahead of rate and red when behind.
+- Items are two to a row. Each cell is the RuneLite inventory sprite, the count in bold, and the on-rate difference with a small gap after the count. Hover the sprite for the item name. Sprites come from `ItemManager`, passed in from `CoxGrindPlugin`. A count of 0 is dim. The difference is green when ahead of rate and red when behind.
 - History is one square per logged raid, read left to right. Each row sits on a faint bar. Grey is a white light. Purple is a unique you received. A light dot marks the raid where one was expected, and that square stays grey unless that raid also has a pet, kit, or dust. If that raid was also a purple, the square stays purple and the dot sits on it. A raid with no purple paints the kit dark green, the pet white, and dust cyan. The last square is gold, with a small arrow pointing right, and it is the next raid. Hover a square for the raid number. Do not put the red expected fill or the split square back.
 - Tracked items are rows, newest first. CM kill count is gold. Regular kill count is cyan. A purple name is green. Pet is white, kit is dark green, and dust is cyan. The full report history is still the wide `.` `+` `'` line and still ends with the gold `@`. Do not put that line back on the tab. The full report does not list pet, kit, or dust.
 
@@ -349,43 +358,48 @@ The PB is the fastest valid `Raid Completed` in the comparison set. The average 
 
 Do not turn this back into a chart of each row's difference from the average. The list already shows that.
 
+The Target graph uses the same rooms and the same skip rules. Each gain is `target - actual` for a row that has a target. Start is 0, on the target. The Olm point replaces the phase gains when an Olm target is set. Finish is the raid target minus the actual finish. A room with no target is not a point. The caption is against the target, such as `Tekton  00:10 ahead of target`. There is no PB line on this graph.
+
 Full report opens a modeless window with the same text report, including colors. Log folder creates `cox-grind` if needed and calls `Desktop.open`. UI mutations hop to the Swing event thread.
 
 Diff colors match Coxparser: cyan when a time is at least 20 seconds faster, green when it is faster, orange when it is under 10 seconds slower, red when it is slower than that. Higher points are green. Lower points are red. The text itself carries the console color codes. `ColoredText` paints them. A purple `+` is green. An expected-tick `'` is red. On the pace line the same cuts are measured from the average: 20 seconds or more ahead is cyan, any time ahead is green, under 10 seconds behind is orange, and further behind is red. Even with the average is the plain text color. A point past the PB line is gold, the same color as that line. The middle of the graph is the average, not zero.
 
-Targets are the RuneLite plugin settings, in the collapsed Regular targets and CM targets sections. `@ConfigSection` in RuneLite 1.12.39 annotates a field, not a method. Time rows accept `MM:SS`. Total Points and PPH accept whole numbers. Blank means no target. The rows are prep rooms, Pre-Olm, mage hand phases 1 and 2, Olm phases 1 through 3, Olm head, Olm, Raid Completed, Between room time, Total Points, PPH. The Target tab asks for Regular, Regular full, or CM when the filter is All.
+Targets are the RuneLite plugin settings, in the collapsed Regular targets and CM targets sections. `@ConfigSection` in RuneLite 1.12.39 annotates a field, not a method. Time rows accept `MM:SS`. Total Points and PPH accept whole numbers. Blank means no target. The rows are prep rooms, mage hand phases 1 and 2, Olm phases 1 through 3, Olm head, Between room time, Total Points, and PPH. Pre-Olm, Olm, and Raid Completed are calculated. The Target tab asks for Regular, Regular full, or CM when the filter is All.
 
 Regular targets default to blank. CM defaults, set by the owner:
 
 | Row | CM |
 | --- | --- |
-| Tekton | 1:08 |
-| Crabs | 0:57 |
-| Ice demon | 2:19 |
-| Shamans | 1:02 |
-| Vanguards | 2:18 |
-| Thieving | 1:21 |
-| Vespula | 1:01 |
-| Tightrope | 1:00 |
-| Guardians | 1:52 |
-| Vasa | 1:11 |
-| Mystics | 1:46 |
-| Muttadiles | 1:42 |
-| Pre-Olm | 17:34 |
+| Tekton | 1:10 |
+| Crabs | 0:56 |
+| Ice demon | 2:24 |
+| Shamans | 1:03 |
+| Vanguards | 2:12 |
+| Thieving | 1:15 |
+| Vespula | 0:57 |
+| Tightrope | 0:47 |
+| Guardians | 1:47 |
+| Vasa | 1:10 |
+| Mystics | 1:40 |
+| Muttadiles | 1:25 |
+| Pre-Olm | sum of the prep-room targets. There is no Pre-Olm box. With these rooms that sum is 16:46 |
 | Olm mage hand phase 1 and 2 | 0:56 |
-| Olm phase 1, 2, and 3 | 2:00 |
-| Olm head | 1:04 |
-| Olm | 8:00 |
-| Raid Completed | 27:04 |
-| Between room time | 1:19 |
+| Olm phase 1 and 2 | 1:53 |
+| Olm phase 3 | 1:55 |
+| Olm head | 1:06 |
+| Olm | phase targets plus the head, plus 1:00 between phases. There is no Olm box. That sum is 7:47 |
+| Raid Completed | Pre-Olm plus that Olm sum plus Between room time. There is no Raid Completed box. That sum is 25:29 |
+| Between room time | 0:56 |
 | Total Points | 63750 |
 | PPH | 130000 |
 
-Olm 8:00 is the three phase targets plus the head, plus a bit of time between phases. Mage-hand targets are not added again. These CM keys are not in the owner's RuneLite profile yet, so the code defaults apply until the owner edits a box. A saved blank would hide the new default. Do not clear these defaults.
+Pre-Olm, Olm, and Raid Completed are not settings. Pre-Olm is the sum of the prep-room targets. Olm is the phase targets plus the head, plus one minute for the time between phases. Mage-hand targets are not added again. Raid Completed is Pre-Olm plus that Olm sum plus Between room time. On 2026-09-25 the saved CM target boxes in the RuneLite profile were set to these defaults, and the old Pre-Olm, Olm, and Raid Completed keys were removed. The same profile's `coxgrind.cmTekton` was then set to `1:10`. A later edit in the settings is what the plugin uses. A saved blank hides the code default. Do not clear these defaults. Regular target boxes are still blank.
 
 ## Plugin config
 
 Config group `coxgrind`. The owner's existing RuneLite profile may still contain older keys from the sideloaded jar (`showPanel`, `panelPriority`, `trackMageHand`, `chatOnSave`). This code does not read them.
+
+Using twisted bow sits above the sections. Then Items, Strategies, and Money run, open by default. Regular targets and CM targets stay collapsed under those. Full report is a collapsed section after CM targets. It holds Last N raids, Raids in report, the four death point cutoffs, Purple summary, Tracked purples, Room efficiency, Common rooms, and Discarded splits. Purple summary and Tracked purples still hide those parts of the Purples tab. A room can take more than one add. Shamans can take no twisted bow and no slayer helm. Tightrope can take the no-twisted-bow rope add, no vesp pot skip, and killing rope. Ice demon can take no axe and ice milk. Thieving can take no lockpick and over-thieve. Tekton can take no pre-veng. Crabs can take no crab tank. The report line is `Targets adjusted:` and then the boxes that applied: `no twisted bow`, `no slayer helm`, `no lockpick`, `no axe`, `no salve`, `no pre-veng`, `no vesp pot skip`, `no crab tank`, `killing rope`, `vesp milk`, `ice milking`, `over-thieve`. The ice-milk note stays `ice milking` so it matches the outlier label.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -400,25 +414,34 @@ Config group `coxgrind`. The owner's existing RuneLite profile may still contain
 | `showRoomEfficiency` | false | Prep-room points per hour. Off unless the owner turns it on. |
 | `showCommonRooms` | false | Most common prep rooms and the 5 / 6 / other count. Off unless the owner turns it on. |
 | `showOutliers` | true | List of splits dropped from the averages |
-| `useTbow` | true | Off shortens tbow room targets |
-| `noTbowVanguards` | 15 | Seconds removed |
-| `noTbowVasa` | 20 | Seconds removed |
-| `noTbowMystics` | 25 | Seconds removed |
-| `noTbowMuttadiles` | 20 | Seconds removed |
-| `noTbowTightrope` | 10 | Removed only when twisted bow is off and killing rope is on |
-| `noTbowOlmHead` | 30 | Also shortens Olm and Raid Completed when those targets exist |
-| `iceMilking` | false | On adds the ice seconds to the Ice demon target, and includes Ice demon splits over 3:50, up to 4:30, in the averages |
+| `useTbow` | true | Sits above the sections. Off adds Shamans 6s, Vanguards 2s, Tightrope 8s only when killing rope is on, Vasa 30s, Muttadiles 10s, Olm head 20s |
+| `trackVanguards` | false | Side study. Sits under Using twisted bow. Leave it off. On writes Challenge Mode Vanguard rows to `vanguards-<hash>.json` only. It does not change the raid log, the panel, or the report. Nothing is drawn. |
+| `slayerHelm` | true | Items section. Off adds 9s to Shamans |
+| `lockpick` | true | Items section. Off adds 4s to Thieving |
+| `axe` | true | Items section. Off adds 5s to Ice demon |
+| `salve` | true | Items section. Off adds 5s to Mystics |
+| `preVeng` | true | Strategies section. Off adds 4s to Tekton |
+| `vespPotSkip` | true | Strategies section. Off adds 6s to Tightrope |
+| `crabTank` | true | Strategies section. Off adds 4s to Crabs. The CM Crabs target is 0:56, so that add makes it 1:00 |
+| `killRope` | false | Money run section. On adds 59s to Tightrope. The seconds are fixed |
+| `milkVespula` | false | Money run section. Shown as Vesp milk. On adds 18s to Vespula. The seconds are fixed |
+| `iceMilking` | false | Money run section. Shown as Ice milk. On adds the ice milk seconds to Ice demon, and includes Ice demon splits over 3:50, up to 4:30, in the averages |
+| `iceMilkSeconds` | 70 | Money run section. The only adjustable second box. `@Range` 0..600, and `TargetStyle` clamps again |
+| `overThieve` | false | Money run section. On adds 7s to Thieving |
 | `panelMode` | | Hidden. Not a `@ConfigItem`. Saved when the mode box changes. Restored on startup. `ALL`, `REGULAR`, `REGULAR_FULL`, `CM` |
 | `panelSize` | | Hidden. Same as `panelMode`. `ALL`, `SOLO`, `TEAM` |
-| `iceMilkSeconds` | 70 | |
-| `killRope` | false | On adds time to Tightrope |
-| `killRopeSeconds` | 50 | |
-| `milkVespula` | false | On adds time to Vespula |
-| `milkVespulaSeconds` | 10 | |
 
-Method-second boxes use `@Range` 0..600, and `TargetStyle` clamps again when it builds the comparison column. Killing rope defaults to 50 seconds in both the settings and `TargetStyle`. Adjustments change the comparison column only, except Ice milking, which also decides whether Ice demon splits over 3:50 are in the averages. The typed targets in plugin settings stay as entered. Pre-Olm and Raid Completed move by the net change of the prep rooms that had a target. A room with no typed target is left blank.
+The old per-room second keys (`noTbowVanguards`, `noTbowVasa`, `noTbowMystics`, `noTbowMuttadiles`, `noTbowTightrope`, `noTbowOlmHead`, `killRopeSeconds`, `milkVespulaSeconds`) are not read. Adjustments change the comparison column only, except Ice milk, which also decides whether Ice demon splits over 3:50 are in the averages. The typed targets in plugin settings stay as entered. Pre-Olm is the sum of those prep-room targets after the adjustments, and Raid Completed follows that sum. A room with no typed target is left out of the sum. Olm head adjustments are inside the Olm sum.
 
-Code defaults do not override a value already saved in the owner's RuneLite profile under `%USERPROFILE%\.runelite\profiles2\`. As of 2026-09-22 that profile has `iceMilking=false`, `killRope=true`, `killRopeSeconds=50`, `milkVespula=true`, `showRoomEfficiency=false`, and `showCommonRooms=false`. The code defaults for those last two switches are false. The saved profile matches them. The owner asked for room efficiency and common rooms to stay off. Killing rope and milking Vespula stay as saved. Do not turn those two method boxes off unless the owner asks. Old unused keys in that profile (`showPanel`, `panelPriority`, `trackMageHand`, `chatOnSave`) are not read.
+Code defaults do not override a value already saved in the owner's RuneLite profile under `%USERPROFILE%\.runelite\profiles2\`. The saved profile has `showRoomEfficiency=false` and `showCommonRooms=false`. The owner asked for room efficiency and common rooms to stay off. Track Vanguards stays off. Do not tick it in that profile. On 2026-09-25 the owner asked for every Money run box to start unticked, so the saved `killRope` and `milkVespula` values were set to false. Do not tick those again unless the owner asks. New item and strategy boxes default on, so a missing key does not add time. Old unused keys in that profile (`showPanel`, `panelPriority`, `trackMageHand`, `chatOnSave`, and the retired second boxes) are not read.
+
+RuneLite's settings rows have no icon slot. `ConfigItemIcons` listens for components added to the client UI and, once a label is parented under the CoXGrind settings title, sets a 22px item sprite on it. The label is created before that row is attached, so decorating the label at creation time finds no page and draws nothing. The sprite is twisted bow, slayer helm (i), lockpick, dragon axe, salve amulet(ei), an astral rune for pre-veng, a stamina potion for vesp pot skip, a red crab for crab tank, a rope, a Vespula for vesp milk, a tinderbox for ice milk, and a lockpick for over-thieve. Ice milk seconds has no sprite. The Active, Target, and Bests lists still have no room icons.
+
+## Vanguard side study
+
+Personal study log only. It is not a feature of the panel or the report. Do not describe it in the README. Do not build on it unless the owner asks.
+
+When the checkbox is on, Challenge Mode rooms are written to `vanguards-<unsigned hash>.json` in the same folder as the raid log. Regular raids, including a full layout, are not written. One object per room. `kc` is null until the Challenge Mode kill-count sentence arrives. A reset is kept. A regular kill-count sentence removes that room. Hole letters are `A` west, `B` middle, `C` east, with a shared east-west line broken toward the south. `durationTicks` is how long they stayed up. `gapTicks` is how long they stayed down before the next emerge. `forced` marks a heal hitsplat or a dig under 20 ticks. `killed` and `interrupted` mark a fight that ended or a leave. `meleeOffHole` means the melee Vanguard was away from its hole when it dug. Nothing is drawn.
 
 ## Report
 
@@ -464,7 +487,7 @@ The purple summary includes logged raids, average personal points, rate `loggedR
 
 | Path | Role |
 | --- | --- |
-| `src/main/java/com/coxgrind/CoxGrindPlugin.java` | Client events, sidebar, save and update |
+| `src/main/java/com/coxgrind/CoxGrindPlugin.java` | Client events, sidebar, save and update. Starts and stops `ConfigItemIcons`. |
 | `src/main/java/com/coxgrind/CoxGrindConfig.java` | Report, death, section, and target-adjustment settings |
 | `src/main/java/com/coxgrind/model/CoxRaidRecord.java` | One raid. `secondsFor` returns -1 when absent. `isFullLayout` is 11+ prep rooms. `extras` is pet, kit, and dust, separate from `purple` |
 | `src/main/java/com/coxgrind/model/RoomSplit.java` | `{room, seconds}` |
@@ -477,6 +500,7 @@ The purple summary includes logged raids, average personal points, rate `loggedR
 | `src/main/java/com/coxgrind/report/TargetSettings.java` | Plugin-settings targets into `ComparisonTargets` |
 | `src/main/java/com/coxgrind/report/ReportColor.java` | Coxparser diff colors, plus gold |
 | `src/main/java/com/coxgrind/ui/ColoredText.java` | Paints those colors in the time tabs and the report window. `\u001B[#11m` switches the following text to size 11. The Purples tab does not use it. |
+| `src/main/java/com/coxgrind/ui/ConfigItemIcons.java` | Item sprites on the CoXGrind settings labels, applied when the row is attached to that page. Not on the time lists. |
 | `src/main/java/com/coxgrind/track/CoxRaidSession.java` | Testable raid state machine |
 | `src/main/java/com/coxgrind/track/RaidChat.java` | Chat patterns, purple names, death line |
 | `src/main/java/com/coxgrind/track/TimeFormat.java` | Raid-clock conversion and `MM:SS` parse |
@@ -485,18 +509,20 @@ The purple summary includes logged raids, average personal points, rate `loggedR
 | `src/main/java/com/coxgrind/report/RaidReportFormatter.java` | Text report, the PB pace line, and `purpleBoard` for the Purples tab |
 | `src/main/java/com/coxgrind/report/PurpleBoard.java` | Numbers for the Purples tab. The text report still prints its own copy. |
 | `src/main/java/com/coxgrind/report/ReportOptions.java` | One report's settings and which target sheet to use |
-| `src/main/java/com/coxgrind/report/TargetStyle.java` | Twisted bow, ice, rope, and Vespula adjustments |
+| `src/main/java/com/coxgrind/report/TargetStyle.java` | Twisted bow, item, strategy, and money-run adjustments |
 | `src/main/java/com/coxgrind/ui/ActiveTimes.java` | Drawn split list for Active, Target, and Bests. Times and the comparison are two columns on the right. Mage P1 and Olm P1. Quiet lines after the upper and middle floors. |
-| `src/main/java/com/coxgrind/ui/PaceGraph.java` | Pace line under the Active tab. Centered on the average. The PB is the line above it. |
+| `src/main/java/com/coxgrind/ui/PaceGraph.java` | Pace line under Active and Target. Active is centered on the average, with the PB above it. Target is centered on the target sheet. |
 | `src/main/java/com/coxgrind/ui/PurplePanel.java` | Card layout for the Purples tab. Item sprites, a side count for pet, kit, and dust, history squares, Total points. |
 | `src/main/java/com/coxgrind/ui/CoxGrindPanel.java` | Swing side panel. Filters, two buttons, four equal tabs. No status line. No target editor. Filters are remembered. |
 | `src/test/java/com/coxgrind/CoxGrindPluginTest.java` | `main` for `gradlew run`, not a JUnit test |
 | `src/test/java/com/coxgrind/track/*Test.java` | Clock, chat, session, teammate purple, deaths |
 | `src/test/java/com/coxgrind/log/RaidLogStoreTest.java` | One raid replaced in place, legacy `.jsonl` folded in, `totalSeconds` omitted when Raid Completed is present, `extras` round-trip |
 | `src/test/java/com/coxgrind/report/RaidReportFormatterTest.java` | Heading, filters, ice milking, unfiltered purples, bests, outliers, targets, On Rate, deaths |
+| `src/test/java/com/coxgrind/report/TargetStyleTest.java` | Fixed adds for no twisted bow, missing gear, missing strategies, and money-run methods. Defaults leave the sheet alone. Tightrope gets the no-twisted-bow add only when killing rope is on. |
+| `src/test/java/com/coxgrind/ui/ConfigItemIconsTest.java` | Settings labels map to item ids. A label is not on the CoXGrind page until it is parented under that title. |
 | `runelite-plugin.properties` | Hub-style metadata. Not used by `gradlew run` |
 
-Tests to keep green: clock units `100 -> 60` seconds and `150 -> 90`; a scripted solo raid with Tekton, Crabs, two floors, three Olm phases, no mage-hand row on phase 3, head, total, two deaths, and one teammate purple; the open segment follows the current phase and is `-1` after the raid ends; one JSON raid replaced in place, plus a legacy `.jsonl` raid-and-patch folded into one object; report heading `Analyzing all solo CM raids (4 raids)`; a no-tbow / ice / rope / Vespula target adjustment; a floor line that starts with `@mes_hl_mag@`; a live Tekton that is 20 seconds under the comparison average is `+20` ahead of PB when that comparison raid is its own PB; the pace line has no mage-hand point, an Olm phase point is replaced when Olm is applied, and `Finish` is PB minus the actual total; when the comparison set's PB is faster than its average, `Start` is that gap behind the PB, a room ahead of the average moves up from `Start` by that many seconds, and a finish on the PB time is 0; the purple tab colors the on-rate diff and uses `DHCB`; Ice demon over 3:50 is excluded unless ice milking is on, and over 4:30 stays excluded; a CM-solo time filter still counts a regular raid in the purple section and colors the full-report Difference line; the purple tab prints indented Regular and CM raid counts from the whole log, and its history says `Purples:` without the wide ` | Purples:` line; Bests shows the fastest valid room and its KC in gold, the time starts in the same column as Active and Target, includes Between rooms, Total Points, and PPH, has no title line, and a dash rule follows Pre-Olm, Raid Completed, and Between rooms; `purpleView` still prints Summary, Items, History, and Tracked items, Regular in cyan, CM in gold, All points under Avg points, a two-decimal Rate column, a whole-number average dry streak, and a gold `@` at the end of the history text; the tab itself is `PurplePanel` and labels that sum Total points; a friends-chat `Special loot:` header followed by `Name - Item` is that player's purple, `Valuable drop: Item (coins)` is yours, and `received special loot from a raid:` is not a purple; Olmlet, metamorphic dust, and the twisted kit are side rewards on `extras`, they stay out of the purple count, a purple square stays purple, and a dry raid with a kit is still a dry mark.
+Tests to keep green: clock units `100 -> 60` seconds and `150 -> 90`; a scripted solo raid with Tekton, Crabs, two floors, three Olm phases, no mage-hand row on phase 3, head, total, two deaths, and one teammate purple; the open segment follows the current phase and is `-1` after the raid ends; one JSON raid replaced in place, plus a legacy `.jsonl` raid-and-patch folded into one object; report heading `Analyzing all solo CM raids (4 raids)`; a no-tbow / ice / rope / Vespula target adjustment that adds the fixed seconds, plus item, strategy, no crab tank, and over-thieve adds; settings labels map to item ids and count only after they are parented under the CoXGrind title; a floor line that starts with `@mes_hl_mag@`; a live Tekton that is 20 seconds under the comparison average is `+20` ahead of PB when that comparison raid is its own PB; the pace line has no mage-hand point, an Olm phase point is replaced when Olm is applied, and `Finish` is PB minus the actual total; when the comparison set's PB is faster than its average, `Start` is that gap behind the PB, a room ahead of the average moves up from `Start` by that many seconds, and a finish on the PB time is 0; the purple tab colors the on-rate diff and uses `DHCB`; Ice demon over 3:50 is excluded unless ice milking is on, and over 4:30 stays excluded; a CM-solo time filter still counts a regular raid in the purple section and colors the full-report Difference line; the purple tab prints indented Regular and CM raid counts from the whole log, and its history says `Purples:` without the wide ` | Purples:` line; Bests shows the fastest valid room and its KC in gold, the time starts in the same column as Active and Target, includes Between rooms, Total Points, and PPH, has no title line, and a dash rule follows Pre-Olm, Raid Completed, and Between rooms; `purpleView` still prints Summary, Items, History, and Tracked items, Regular in cyan, CM in gold, All points under Avg points, a two-decimal Rate column, a whole-number average dry streak, and a gold `@` at the end of the history text; the tab itself is `PurplePanel` and labels that sum Total points; a friends-chat `Special loot:` header followed by `Name - Item` is that player's purple, `Valuable drop: Item (coins)` is yours, and `received special loot from a raid:` is not a purple; Olmlet, metamorphic dust, and the twisted kit are side rewards on `extras`, they stay out of the purple count, a purple square stays purple, and a dry raid with a kit is still a dry mark.
 
 ## Explicitly out of scope until the owner asks
 
@@ -513,6 +539,6 @@ Tests to keep green: clock units `100 -> 60` seconds and `150 -> 90`; a scripted
 - Change this repo locally. Commit only when the owner asks. Do not force-push `main`.
 - After Java changes, run `gradlew.bat test`. If client wiring changed, `gradlew.bat run` must reach `Plugin CoxGrindPlugin is now running` with no `Error instantiating plugin`.
 - A real raid is still the acceptance test for tracking. Tell the owner what to click. Do not claim a raid was logged unless a new line exists under `.runelite\cox-grind\`.
-- Keep the plugin readable as model / log / track / report / ui. Put client calls in `CoxGrindPlugin`.
+- Keep the plugin readable as model / log / track / report / ui. Game events stay in `CoxGrindPlugin`. Item sprites may load from the UI classes that draw them.
 - Do not add a second CoXGrind class on the classpath. One sidebar button, one log writer.
 - README edits stay in plain Windows steps: File Explorer, double-click, Command Prompt. No Linux instructions.

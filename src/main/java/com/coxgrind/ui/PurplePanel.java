@@ -240,7 +240,7 @@ public class PurplePanel extends JPanel implements Scrollable
 		row.setLayout(new BoxLayout(row, BoxLayout.X_AXIS));
 		JLabel icon = itemIcon(item.getName(), 20);
 		JLabel count = new JLabel(Integer.toString(item.getGot()));
-		count.setFont(LABEL);
+		count.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
 		count.setForeground(held ? INK : MUTED);
 		String diff = String.format(Locale.US, "%+.2f", item.getDiff());
 		JLabel rate = new JLabel(diff);
@@ -249,7 +249,7 @@ public class PurplePanel extends JPanel implements Scrollable
 		row.add(icon);
 		row.add(Box.createHorizontalStrut(4));
 		row.add(count);
-		row.add(Box.createHorizontalStrut(4));
+		row.add(Box.createHorizontalStrut(8));
 		row.add(rate);
 		row.add(Box.createHorizontalGlue());
 		fillWidth(row);

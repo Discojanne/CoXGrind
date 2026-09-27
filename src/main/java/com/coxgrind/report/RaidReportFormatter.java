@@ -270,9 +270,26 @@ public final class RaidReportFormatter
 	/** Recent raid against the target sheet, with the same rows the Target tab draws. */
 	public static PaceComparison targetView(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
 	{
+		return targetView(allRaids, mode, size, options, null, -1, false);
+	}
+
+	/**
+	 * Same as {@link #paceView} for a live raid. The comparison is the target sheet.
+	 * {@code inProgress} is false once Olm is dead.
+	 */
+	public static PaceComparison targetView(
+		List<CoxRaidRecord> allRaids,
+		RaidModeFilter mode,
+		RaidSizeFilter size,
+		ReportOptions options,
+		CoxRaidRecord live,
+		int openSeconds,
+		boolean inProgress)
+	{
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
+		boolean milk = includeIceMilking(settings);
 		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
-		if (raids.isEmpty())
+		if (raids.isEmpty() && live == null)
 		{
 			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
 		}
@@ -287,9 +304,32 @@ public final class RaidReportFormatter
 		}
 		StringBuilder out = new StringBuilder();
 		List<TimeRow> rows = new ArrayList<>();
-		appendRecentCompare(out, raids, targets, true, includeIceMilking(settings), rows);
-		CoxRaidRecord subject = raids.get(raids.size() - 1);
-		return new PaceComparison(out.toString(), new ArrayList<PacePoint>(), rows, subject.getKc(), subject.isChallengeMode(), false, "vs target", false, true);
+		CoxRaidRecord subject;
+		boolean finished;
+		if (live != null && inProgress)
+		{
+			appendLiveTargets(out, live, openSeconds, targets, rows);
+			subject = live;
+			finished = false;
+		}
+		else if (live != null)
+		{
+			List<CoxRaidRecord> combined = new ArrayList<>(raids);
+			combined.add(live);
+			appendRecentCompare(out, combined, targets, true, milk, rows);
+			subject = live;
+			finished = live.getTotalSeconds() > 0;
+		}
+		else
+		{
+			appendRecentCompare(out, raids, targets, true, milk, rows);
+			subject = raids.get(raids.size() - 1);
+			finished = subject.getTotalSeconds() > 0;
+		}
+		String note = missingTargets(targets, subject, mode);
+		PaceComparison view = new PaceComparison(out.toString(), targetPaceLine(targets, subject, finished, milk), rows, subject.getKc(), subject.isChallengeMode(), inProgress, "", false, true);
+		view.setNote(note);
+		return view;
 	}
 
 	/**
@@ -304,12 +344,30 @@ public final class RaidReportFormatter
 	/** Fastest valid split for each row. Times are gold. The side column is that raid's kill count. */
 	public static PaceComparison bestView(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
 	{
+		return bestView(allRaids, mode, size, options, "fastest");
+	}
+
+	/**
+	 * Bests list. {@code fastest} is the best split of each room.
+	 * {@code raid} is the fastest finish and that raid's own splits.
+	 * {@code pph} is the highest points-per-hour raid and that raid's own splits.
+	 */
+	public static PaceComparison bestView(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options, String focus)
+	{
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
 		boolean milk = includeIceMilking(settings);
 		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
 		if (raids.isEmpty())
 		{
 			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
+		}
+		if ("raid".equals(focus))
+		{
+			return showcase(pickFastest(raids, milk), milk, "No raid time in this filter yet.\n", "raid");
+		}
+		if ("pph".equals(focus))
+		{
+			return showcase(pickHighestPph(raids, milk), milk, "No points per hour in this filter yet.\n", "pph");
 		}
 		StringBuilder out = new StringBuilder();
 		List<TimeRow> drawn = new ArrayList<>();
@@ -353,6 +411,75 @@ public final class RaidReportFormatter
 			return new PaceComparison("No room times in this filter yet.\n", new ArrayList<PacePoint>());
 		}
 		return new PaceComparison(out.toString(), new ArrayList<PacePoint>(), drawn, 0, false, false, "fastest", true, false);
+	}
+
+	/** One raid's own splits. Times are gold. The kill count is the list badge, not a column. */
+	private static PaceComparison showcase(CoxRaidRecord raid, boolean milk, String empty, String caption)
+	{
+		if (raid == null)
+		{
+			return new PaceComparison(empty, new ArrayList<PacePoint>());
+		}
+		StringBuilder out = new StringBuilder();
+		List<TimeRow> drawn = new ArrayList<>();
+		List<String> rows = rowsFor(Collections.singletonList(raid));
+		for (int r = 0; r < rows.size(); r++)
+		{
+			String row = rows.get(r);
+			Integer value = valueFor(raid, row, milk);
+			if (value == null)
+			{
+				continue;
+			}
+			boolean higher = "Total Points".equals(row) || "PPH".equals(row);
+			String shown = higher ? Integer.toString(value) : TimeFormat.formatSeconds(value);
+			String colored = higher ? right(shown, 6) : ReportColor.gold(right(shown, 6));
+			out.append(left(shortRoom(row), 15))
+				.append(' ')
+				.append(colored)
+				.append('\n');
+			drawn.add(new TimeRow(shortRoom(row), shown, "", null, higher, false, null));
+			appendTimeBreak(out, row);
+		}
+		if (drawn.isEmpty())
+		{
+			return new PaceComparison("No room times in this filter yet.\n", new ArrayList<PacePoint>());
+		}
+		return new PaceComparison(out.toString(), new ArrayList<PacePoint>(), drawn, raid.getKc(), raid.isChallengeMode(), false, caption, true, false);
+	}
+
+	private static CoxRaidRecord pickFastest(List<CoxRaidRecord> raids, boolean milk)
+	{
+		CoxRaidRecord bestRaid = null;
+		int best = Integer.MAX_VALUE;
+		for (int i = 0; i < raids.size(); i++)
+		{
+			Integer value = valueFor(raids.get(i), "Raid Completed", milk);
+			if (value == null || value > best)
+			{
+				continue;
+			}
+			best = value;
+			bestRaid = raids.get(i);
+		}
+		return bestRaid;
+	}
+
+	private static CoxRaidRecord pickHighestPph(List<CoxRaidRecord> raids, boolean milk)
+	{
+		CoxRaidRecord bestRaid = null;
+		int best = Integer.MIN_VALUE;
+		for (int i = 0; i < raids.size(); i++)
+		{
+			Integer value = valueFor(raids.get(i), "PPH", milk);
+			if (value == null || value < best)
+			{
+				continue;
+			}
+			best = value;
+			bestRaid = raids.get(i);
+		}
+		return bestRaid;
 	}
 
 	private static PaceComparison recentPace(List<CoxRaidRecord> raids, boolean milk)
@@ -782,6 +909,202 @@ public final class RaidReportFormatter
 			points.add(new PacePoint("Finish", personalBest - total));
 		}
 		return points;
+	}
+
+	/**
+	 * Running seconds ahead of the target sheet. Positive means this pace beats the target if the rest of the raid matches those targets.
+	 * Start is on the target. Mage hand is skipped. Phase gains are replaced when Olm ends.
+	 * The last point of a finished raid is the raid target minus the actual finish, when that target is set.
+	 */
+	private static void appendLiveTargets(StringBuilder out, CoxRaidRecord live, int openSeconds, Map<String, Integer> targets, List<TimeRow> rows)
+	{
+		if (live != null)
+		{
+			List<RoomSplit> splits = live.getSplits();
+			for (int i = 0; i < splits.size(); i++)
+			{
+				RoomSplit split = splits.get(i);
+				if (split == null || split.getRoom() == null || split.getSeconds() <= 0 || split.getRoom().startsWith("Floor "))
+				{
+					continue;
+				}
+				Integer target = targets.get(split.getRoom());
+				Double benchmark = target != null && target > 0 ? target.doubleValue() : null;
+				appendTimeLine(out, split.getRoom(), split.getSeconds(), benchmark, false, rows);
+			}
+		}
+		if (openSeconds > 0)
+		{
+			out.append(left("Current", 15))
+				.append(' ')
+				.append(right(TimeFormat.formatSeconds(openSeconds), 6))
+				.append('\n');
+			if (rows != null)
+			{
+				rows.add(new TimeRow("Current", TimeFormat.formatSeconds(openSeconds), "", null, false, true, null));
+			}
+		}
+	}
+
+	private static String missingTargets(Map<String, Integer> targets, CoxRaidRecord subject, RaidModeFilter mode)
+	{
+		if (subject == null || targets == null)
+		{
+			return "";
+		}
+		String sheet = mode == RaidModeFilter.CM ? "CM targets" : "Regular targets";
+		List<String> missing = new ArrayList<>();
+		List<RoomSplit> splits = subject.getSplits();
+		for (int i = 0; i < splits.size(); i++)
+		{
+			RoomSplit split = splits.get(i);
+			if (split == null || split.getRoom() == null || split.getSeconds() <= 0)
+			{
+				continue;
+			}
+			String room = split.getRoom();
+			if (room.startsWith("Floor ") || "Olm".equals(room) || "Raid Completed".equals(room))
+			{
+				continue;
+			}
+			Integer target = targets.get(room);
+			if (target == null || target <= 0)
+			{
+				missing.add(shortRoom(room));
+			}
+		}
+		if (targets.get("Olm") == null)
+		{
+			missing.add("Olm phases");
+		}
+		if (targets.get("Between room time") == null)
+		{
+			missing.add("Between rooms");
+		}
+		if (missing.isEmpty())
+		{
+			return "";
+		}
+		return "No target for " + join(missing) + ". RuneLite wrench, CoXGrind, " + sheet + ".";
+	}
+
+	private static String join(List<String> names)
+	{
+		StringBuilder out = new StringBuilder();
+		int limit = Math.min(names.size(), 4);
+		for (int i = 0; i < limit; i++)
+		{
+			if (i > 0)
+			{
+				out.append(", ");
+			}
+			out.append(names.get(i));
+		}
+		if (names.size() > limit)
+		{
+			out.append(", …");
+		}
+		return out.toString();
+	}
+
+	private static List<PacePoint> targetPaceLine(Map<String, Integer> targets, CoxRaidRecord subject, boolean finished, boolean milk)
+	{
+		List<PacePoint> points = new ArrayList<>();
+		if (targets == null || targets.isEmpty() || subject == null)
+		{
+			return points;
+		}
+		int roomBank = 0;
+		int phaseBank = 0;
+		int olmGain = 0;
+		boolean olmApplied = false;
+		boolean plotted = false;
+		int pendingMage = 0;
+		points.add(new PacePoint("Start", 0));
+		List<RoomSplit> splits = subject.getSplits();
+		for (int i = 0; i < splits.size(); i++)
+		{
+			RoomSplit split = splits.get(i);
+			if (split == null || split.getRoom() == null || split.getSeconds() <= 0)
+			{
+				continue;
+			}
+			String room = split.getRoom();
+			if (room.startsWith("Floor ") || "Raid Completed".equals(room) || "Pre-Olm".equals(room) || "Between room time".equals(room))
+			{
+				continue;
+			}
+			Integer target = targets.get(room);
+			if ((target == null || target <= 0) && !room.startsWith("Olm mage hand"))
+			{
+				continue;
+			}
+			boolean outlier = !validTime(room, split.getSeconds(), milk);
+			int gain = target == null || target <= 0 || outlier ? 0 : target - split.getSeconds();
+			if (RoomNames.isPrepRoom(room))
+			{
+				roomBank += gain;
+				points.add(new PacePoint(shortRoom(room), targetAhead(roomBank, phaseBank, olmGain, olmApplied), outlier));
+				plotted = true;
+			}
+			else if (room.startsWith("Olm mage hand"))
+			{
+				if (target == null || target <= 0)
+				{
+					continue;
+				}
+				phaseBank += gain;
+				pendingMage = gain;
+				points.add(new PacePoint(shortRoom(room), targetAhead(roomBank, phaseBank, olmGain, olmApplied), outlier));
+				plotted = true;
+			}
+			else if (isOlmPhase(room))
+			{
+				if (target == null || target <= 0)
+				{
+					pendingMage = 0;
+					continue;
+				}
+				phaseBank += outlier ? 0 : gain - pendingMage;
+				pendingMage = 0;
+				if (!olmApplied)
+				{
+					points.add(new PacePoint(shortRoom(room), targetAhead(roomBank, phaseBank, olmGain, olmApplied), outlier));
+					plotted = true;
+				}
+			}
+			else if ("Olm".equals(room))
+			{
+				if (!outlier)
+				{
+					olmGain = gain;
+					olmApplied = true;
+				}
+				points.add(new PacePoint("Olm", targetAhead(roomBank, phaseBank, olmGain, olmApplied), outlier));
+				plotted = true;
+			}
+		}
+		int total = subject.getTotalSeconds();
+		if (total <= 0)
+		{
+			total = subject.secondsFor("Raid Completed");
+		}
+		Integer raidTarget = targets.get("Raid Completed");
+		if (total > 0 && raidTarget != null && raidTarget > 0)
+		{
+			points.add(new PacePoint("Finish", raidTarget - total));
+			plotted = true;
+		}
+		if (!plotted)
+		{
+			return new ArrayList<>();
+		}
+		return points;
+	}
+
+	private static int targetAhead(int roomBank, int phaseBank, int olmGain, boolean olmApplied)
+	{
+		return roomBank + (olmApplied ? olmGain : phaseBank);
 	}
 
 	private static int ahead(int personalBest, int averageTotal, int roomBank, int phaseBank, int olmGain, boolean olmApplied)
@@ -2299,11 +2622,18 @@ public final class RaidReportFormatter
 	{
 		private final String label;
 		private final int aheadSeconds;
+		private final boolean flat;
 
 		public PacePoint(String label, int aheadSeconds)
 		{
+			this(label, aheadSeconds, false);
+		}
+
+		public PacePoint(String label, int aheadSeconds, boolean flat)
+		{
 			this.label = label == null ? "" : label;
 			this.aheadSeconds = aheadSeconds;
+			this.flat = flat;
 		}
 
 		public String getLabel()
@@ -2314,6 +2644,12 @@ public final class RaidReportFormatter
 		public int getAheadSeconds()
 		{
 			return aheadSeconds;
+		}
+
+		/** An outlier split. The dot stays, and the pace does not move. */
+		public boolean isFlat()
+		{
+			return flat;
 		}
 	}
 
@@ -2389,6 +2725,7 @@ public final class RaidReportFormatter
 		private final String caption;
 		private final boolean goldTimes;
 		private final boolean againstTarget;
+		private String note = "";
 
 		public PaceComparison(String text, List<PacePoint> points)
 		{
@@ -2397,7 +2734,7 @@ public final class RaidReportFormatter
 
 		public PaceComparison(String text, List<PacePoint> points, List<TimeRow> rows, int kc, boolean challengeMode, boolean inProgress)
 		{
-			this(text, points, rows, kc, challengeMode, inProgress, "vs average", false, false);
+			this(text, points, rows, kc, challengeMode, inProgress, "", false, false);
 		}
 
 		public PaceComparison(String text, List<PacePoint> points, List<TimeRow> rows, int kc, boolean challengeMode, boolean inProgress, String caption, boolean goldTimes, boolean againstTarget)
@@ -2456,6 +2793,16 @@ public final class RaidReportFormatter
 		public boolean isAgainstTarget()
 		{
 			return againstTarget;
+		}
+
+		public void setNote(String note)
+		{
+			this.note = note == null ? "" : note;
+		}
+
+		public String getNote()
+		{
+			return note;
 		}
 	}
 }
