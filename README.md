@@ -1,4 +1,4 @@
-# CoXGrind
+# Cox Grind
 
 Personal Chambers of Xeric logger for RuneLite.
 
@@ -10,7 +10,7 @@ It writes each finished raid to a file on your PC and shows a side panel with re
    During setup, turn on "Add to PATH" if you see that option.
 2. Open this project folder in File Explorer.
 3. Double-click `Run-CoXGrind.bat`.
-4. Leave the black window open. The first time can take a few minutes. It downloads RuneLite, then a RuneLite window opens with CoXGrind loaded.
+4. Leave the black window open. The first time can take a few minutes. It downloads RuneLite, then a RuneLite window opens with Cox Grind loaded.
 5. If Windows asks whether to allow Java to use your network, choose Yes.
 6. Log in and play. Closing the black window closes the game.
 
@@ -20,7 +20,7 @@ You can also open Command Prompt in this folder and run:
 gradlew.bat run
 ```
 
-Use this client to play when you want CoXGrind. The normal Jagex Launcher client does not load this personal plugin.
+Use this client to play when you want Cox Grind. The normal Jagex Launcher client does not load this personal plugin.
 
 An older copy of this plugin may still sit in `%USERPROFILE%\.runelite\sideloaded-plugins\`. If that jar is named `cox-grind-1.0.0.jar`, rename it so the name does not end in `.jar`. The launcher loads every jar in that folder, and two copies of this plugin will fight. Do not put a jar back there while you use `Run-CoXGrind.bat`.
 
@@ -43,17 +43,17 @@ Do not share `credentials.properties`. You can delete that file later if you wan
 
 ## What to click after one raid
 
-1. Start `Run-CoXGrind.bat`. You can open the CoXGrind panel before you log in. It shows the raids already saved on this PC.
-2. On the RuneLite sidebar (the vertical strip of icons), click the purple square with a white C. The tooltip says CoXGrind.
-3. At the top of the side panel, pick the filters. Mode is All / Regular / Regular full / CM. Size is All / Solo / Team.
-4. The tabs are Average, Target, Best, and Purples. Average follows the raid you are in. It clears when the raid starts, then adds each split against your average. The graph under that list is your pace against your average, with your personal best as a line above it. If you leave before the raid ends, it goes back to your latest saved raid. Target is the latest raid against your targets. The graph under that list is the same shape, measured against those targets. The middle line is on pace. Above it means ahead of the targets. Best has three small titles: Splits is the fastest split for each room in the current filter, Raid time is the fastest finish with that raid's splits, and PPH is the highest points-per-hour raid with its splits. Purples is every logged raid. It updates when a raid is saved, including while you are still on that tab, and again when you open the tab.
+1. Start `Run-CoXGrind.bat`. You can open the Cox Grind panel before you log in. It shows the raids already saved on this PC.
+2. On the RuneLite sidebar (the vertical strip of icons), click the purple square with a white C. The tooltip says Cox Grind.
+3. At the top of the side panel, pick the filters. Mode is All / Regular / Regular full / CM. Size is All / Solo / Team, plus each party size in the log, such as 3 or 28.
+4. The tabs are Average, Target, Best, and Purples. Average follows the raid you are in. It clears when the raid starts, then adds each split against your average. The graph under that list is your pace against your average, with your personal best as a line above it. If you leave before the raid ends, it goes back to your latest saved raid. Target has two titles, This and Last 10. This is the raid on screen against your targets. Last 10 is the average of that many raids against those targets. The number is part of the title. − and + change it, and Shift changes it by 10. It calculates when you open Last 10, and again when you change the number. The graph under that list is the same shape, measured against those targets. The middle line is on pace. Above it means ahead of the targets. Best has three small titles: Splits is the fastest split for each room in the current filter, Raid time is the fastest finish with that raid's splits, and PPH is the highest points-per-hour raid with its splits. Purples is every logged raid. It updates when a raid is saved, including while you are still on that tab, and again when you open the tab.
 5. Enter Chambers of Xeric, start the raid, and finish it (kill the Great Olm).
 6. Wait until you see the raid complete message and your kill count in chat. The panel updates itself.
 7. Click Full report to open the full text in its own window.
 8. Click Log folder to see the save file.
-9. Target times are in the plugin settings (the RuneLite wrench, CoXGrind). Regular targets and CM targets are collapsed sections. Leave a box blank when you have no target for that row.
+9. Target times are in the plugin settings (the RuneLite wrench, Cox Grind). The sheets are Regular solo, Regular team, CM solo, and CM team. Regular full uses the regular sheet for that team size. Leave a box blank when you have no target for that row. Target total at the top of each sheet is the calculated raid time. Reset to default is the button at the top of that sheet. It asks before it restores the sheet.
 
-A normal raid and a Challenge Mode raid both count. Solo is a team of 1. Team is 2 or more players.
+A normal raid and a Challenge Mode raid both count. Solo is a team of 1. Team is 2 or more players. A number in the size menu is that party size only. Team still means every team size.
 
 ## Where raids are saved
 
@@ -61,7 +61,7 @@ A normal raid and a Challenge Mode raid both count. Solo is a team of 1. Team is
 %USERPROFILE%\.runelite\cox-grind\
 ```
 
-Each account gets its own file, named `account-<hash>.json`. One raid is one block in that file, with each room split on its own line. A purple that arrives a moment later updates that same raid. Pet, kit, and dust are stored on that same raid, apart from the purple. The plugin waits for the kill-count message before it writes, so the saved raid has the real KC and Challenge Mode flag.
+Each account gets its own file, named `account-<hash>.json`. A leagues world on that account is saved apart, in `account-<hash>-league.json`, so those raids stay out of the normal file. Logging into a different account in this same client uses that account's own file. The side panel follows the account and world you are logged into. One raid is one block in that file, with each room split on its own line. A purple that arrives a moment later updates that same raid. Pet, kit, and dust are stored on that same raid, apart from the purple. The plugin waits for the kill-count message before it writes, so the saved raid has the real KC and Challenge Mode flag.
 
 The plugin does not import Cox Analytics or Raid Data Tracker again.
 

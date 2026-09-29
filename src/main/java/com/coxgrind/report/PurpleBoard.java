@@ -101,6 +101,8 @@ public final class PurpleBoard
 	private final int actual;
 	private final int scrolls;
 	private final long allPoints;
+	private final long pointsLost;
+	private final int deathRaids;
 	private final double averagePoints;
 	private final double expected;
 	private final int currentDry;
@@ -121,6 +123,8 @@ public final class PurpleBoard
 		int actual,
 		int scrolls,
 		long allPoints,
+		long pointsLost,
+		int deathRaids,
 		double averagePoints,
 		double expected,
 		int currentDry,
@@ -139,6 +143,8 @@ public final class PurpleBoard
 		this.actual = actual;
 		this.scrolls = scrolls;
 		this.allPoints = allPoints;
+		this.pointsLost = pointsLost;
+		this.deathRaids = deathRaids;
 		this.averagePoints = averagePoints;
 		this.expected = expected;
 		this.currentDry = currentDry;
@@ -154,7 +160,7 @@ public final class PurpleBoard
 
 	public static PurpleBoard empty()
 	{
-		return new PurpleBoard(0, 0, 0, 0, 0, 0L, 0, 0, 0, 0, 0, 0,
+		return new PurpleBoard(0, 0, 0, 0, 0, 0L, 0L, 0, 0, 0, 0, 0, 0, 0,
 			Collections.<Item>emptyList(), Collections.<Item>emptyList(),
 			Collections.<Mark>emptyList(), Collections.<String>emptyList(), Collections.<Drop>emptyList());
 	}
@@ -192,6 +198,35 @@ public final class PurpleBoard
 	public long getAllPoints()
 	{
 		return allPoints;
+	}
+
+	public long getPointsLost()
+	{
+		return pointsLost;
+	}
+
+	/** Raids with at least one logged death. */
+	public int getDeathRaids()
+	{
+		return deathRaids;
+	}
+
+	/** Share of logged raids with at least one death. Zero when there are no raids. */
+	public double getDeathRate()
+	{
+		return raids > 0 ? (double) deathRaids / raids : 0;
+	}
+
+	/** Points lost divided by the points one purple takes. */
+	public double getLostPurples()
+	{
+		return pointsLost / RaidReportFormatter.PURPLE_POINTS;
+	}
+
+	/** Points lost divided by the average personal points. Zero when that average is 0. */
+	public double getLostRaids()
+	{
+		return averagePoints > 0 ? pointsLost / averagePoints : 0;
 	}
 
 	public double getAveragePoints()
@@ -262,5 +297,97 @@ public final class PurpleBoard
 	public List<Drop> getTracked()
 	{
 		return tracked;
+	}
+
+	/** True when both boards would draw the same Purples tab. */
+	public boolean same(PurpleBoard other)
+	{
+		if (other == null)
+		{
+			return false;
+		}
+		if (raids != other.raids || regular != other.regular || challengeMode != other.challengeMode
+			|| actual != other.actual || scrolls != other.scrolls || allPoints != other.allPoints
+			|| pointsLost != other.pointsLost || deathRaids != other.deathRaids
+			|| currentDry != other.currentDry || longestDry != other.longestDry
+			|| averageDry != other.averageDry || expectedEvery != other.expectedEvery
+			|| Double.compare(averagePoints, other.averagePoints) != 0
+			|| Double.compare(expected, other.expected) != 0)
+		{
+			return false;
+		}
+		return sameItems(items, other.items) && sameItems(sideItems, other.sideItems)
+			&& sameMarks(marks, other.marks) && sameStrings(sideKinds, other.sideKinds)
+			&& sameDrops(tracked, other.tracked);
+	}
+
+	private static boolean sameItems(List<Item> left, List<Item> right)
+	{
+		if (left.size() != right.size())
+		{
+			return false;
+		}
+		for (int i = 0; i < left.size(); i++)
+		{
+			Item a = left.get(i);
+			Item b = right.get(i);
+			if (a.got != b.got || Double.compare(a.onRate, b.onRate) != 0 || !a.name.equals(b.name))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static boolean sameDrops(List<Drop> left, List<Drop> right)
+	{
+		if (left.size() != right.size())
+		{
+			return false;
+		}
+		for (int i = 0; i < left.size(); i++)
+		{
+			Drop a = left.get(i);
+			Drop b = right.get(i);
+			if (a.challengeMode != b.challengeMode || !a.kc.equals(b.kc) || !a.item.equals(b.item) || !a.kind.equals(b.kind))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static boolean sameMarks(List<Mark> left, List<Mark> right)
+	{
+		if (left.size() != right.size())
+		{
+			return false;
+		}
+		for (int i = 0; i < left.size(); i++)
+		{
+			if (left.get(i) != right.get(i))
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static boolean sameStrings(List<String> left, List<String> right)
+	{
+		if (left.size() != right.size())
+		{
+			return false;
+		}
+		for (int i = 0; i < left.size(); i++)
+		{
+			String a = left.get(i);
+			String b = right.get(i);
+			if (a == null ? b != null : !a.equals(b))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 }

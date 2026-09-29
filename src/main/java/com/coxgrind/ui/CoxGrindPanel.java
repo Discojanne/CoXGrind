@@ -8,7 +8,6 @@ import com.coxgrind.model.RaidSizeFilter;
 import com.coxgrind.report.RaidReportFormatter;
 import com.coxgrind.report.ReportOptions;
 import com.coxgrind.report.TargetSettings;
-import com.coxgrind.report.TargetStyle;
 import java.awt.BorderLayout;
 import java.awt.Color;
 import java.awt.Component;
@@ -18,9 +17,10 @@ import java.awt.Font;
 import java.awt.GridLayout;
 import java.awt.Insets;
 import java.awt.Rectangle;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.HierarchyListener;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
@@ -36,10 +36,13 @@ import javax.swing.SwingUtilities;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 import net.runelite.client.config.ConfigManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import net.runelite.client.ui.PluginPanel;
 
 public class CoxGrindPanel extends PluginPanel
 {
+	private static final Logger log = LoggerFactory.getLogger(CoxGrindPanel.class);
 	private static final String FILTER_GROUP = "coxgrind";
 	private static final String MODE_KEY = "panelMode";
 	private static final String SIZE_KEY = "panelSize";
@@ -47,7 +50,9 @@ public class CoxGrindPanel extends PluginPanel
 	private final CoxGrindConfig config;
 	private final ConfigManager configManager;
 	private final JComboBox<RaidModeFilter> modeBox = new JComboBox<>(RaidModeFilter.values());
-	private final JComboBox<RaidSizeFilter> sizeBox = new JComboBox<>(RaidSizeFilter.values());
+	private final JComboBox<RaidSizeFilter> sizeBox = new JComboBox<>();
+	private boolean fillingSizes;
+	private RaidSizeFilter pendingSize;
 	private final ActiveTimes activeTimes = new ActiveTimes();
 	private final PaceGraph paceGraph = new PaceGraph();
 	private final PaceColumn paceColumn = new PaceColumn(activeTimes, paceGraph);
@@ -61,11 +66,18 @@ public class CoxGrindPanel extends PluginPanel
 	private final ActiveTimes bestTimes = new ActiveTimes();
 	private String accountHash;
 	private List<CoxRaidRecord> cachedRaids = java.util.Collections.emptyList();
+	private RaidReportFormatter.PaceStats paceStats;
 	private boolean live;
 	private CoxRaidRecord liveRaid;
 	private int liveOpenSeconds = -1;
 	private boolean liveInProgress;
-	private long logStamp = Long.MIN_VALUE;
+	private boolean pendingLive;
+	private int dataGeneration;
+	private int paintedGeneration = -1;
+	/** True while this sidebar is the one on screen. Read from the client thread. */
+	private volatile boolean shown;
+	/** Set when the sidebar opens so the next raid tick draws the current second. */
+	private volatile boolean reveal;
 
 	public CoxGrindPanel(RaidLogStore store, CoxGrindConfig config, ConfigManager configManager)
 	{
@@ -79,6 +91,9 @@ public class CoxGrindPanel extends PluginPanel
 		this.config = config;
 		this.configManager = configManager;
 		purplePanel.setItemManager(itemManager);
+		sizeBox.addItem(RaidSizeFilter.ALL);
+		sizeBox.addItem(RaidSizeFilter.SOLO);
+		sizeBox.addItem(RaidSizeFilter.TEAM);
 		restoreFilters();
 
 		Font small = new Font(Font.SANS_SERIF, Font.PLAIN, 11);
@@ -144,7 +159,7 @@ public class CoxGrindPanel extends PluginPanel
 		targetScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
 		targetScroll.getViewport().setBackground(new Color(24, 24, 24));
 		tabs.addTab("Target", targetScroll);
-		tabs.setToolTipTextAt(1, "Recent raid vs your targets");
+		tabs.setToolTipTextAt(1, "This raid vs your targets");
 		tabs.addTab("Best", reading(bestTimes));
 		tabs.setToolTipTextAt(2, "Fastest split, points, and PPH in this filter");
 		tabs.addTab("Purples", reading(purplePanel));
@@ -155,10 +170,49 @@ public class CoxGrindPanel extends PluginPanel
 			@Override
 			public void stateChanged(ChangeEvent event)
 			{
-				if (tabs.getSelectedIndex() > 0)
+				int tab = tabs.getSelectedIndex();
+				if (tab > 0 && paintedGeneration != dataGeneration)
 				{
-					refreshCache();
 					paintRest();
+					return;
+				}
+				if (tab == 1 && targetTimes.showsLastAverage())
+				{
+					paintTarget();
+					return;
+				}
+				if (!live)
+				{
+					return;
+				}
+				if (tab <= 0)
+				{
+					paintPace();
+				}
+				else if (tab == 1)
+				{
+					paintTarget();
+				}
+			}
+		});
+		addHierarchyListener(new HierarchyListener()
+		{
+			@Override
+			public void hierarchyChanged(HierarchyEvent event)
+			{
+				if ((event.getChangeFlags() & HierarchyEvent.SHOWING_CHANGED) == 0)
+				{
+					return;
+				}
+				boolean now = isShowing();
+				if (now && !shown)
+				{
+					reveal = true;
+				}
+				shown = now;
+				if (now && pendingLive)
+				{
+					paintLive();
 				}
 			}
 		});
@@ -170,6 +224,10 @@ public class CoxGrindPanel extends PluginPanel
 		});
 		sizeBox.addActionListener(event ->
 		{
+			if (fillingSizes)
+			{
+				return;
+			}
 			rememberFilters();
 			reload();
 		});
@@ -178,11 +236,44 @@ public class CoxGrindPanel extends PluginPanel
 			@Override
 			public void run()
 			{
-				paintRest();
+				paintBest();
+			}
+		});
+		targetTimes.setChoices(new String[] {"This", "Last"}, 0, new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				paintTarget();
+			}
+		});
+		targetTimes.setCount(1, 10, 1, 100, new Runnable()
+		{
+			@Override
+			public void run()
+			{
+				paintTarget();
 			}
 		});
 		accountHash = store.latestAccountHash();
 		reload();
+	}
+
+	/** The sidebar is open. Safe to read from the client thread. */
+	public boolean isShown()
+	{
+		return shown;
+	}
+
+	/** True once, when the sidebar has just been opened. */
+	public boolean consumeReveal()
+	{
+		if (!reveal)
+		{
+			return false;
+		}
+		reveal = false;
+		return true;
 	}
 
 	public void setAccount(String hash)
@@ -192,10 +283,16 @@ public class CoxGrindPanel extends PluginPanel
 			@Override
 			public void run()
 			{
-				if (hash != null && !hash.isEmpty())
+				if (hash == null || hash.isEmpty())
 				{
-					accountHash = hash;
+					reload();
+					return;
 				}
+				if (hash.equals(accountHash))
+				{
+					return;
+				}
+				accountHash = hash;
 				reload();
 			}
 		});
@@ -229,16 +326,12 @@ public class CoxGrindPanel extends PluginPanel
 				liveRaid = raid == null ? new CoxRaidRecord() : raid;
 				liveOpenSeconds = openSeconds;
 				liveInProgress = inProgress;
-				if (currentLogStamp() != logStamp)
+				if (!isShowing())
 				{
-					refreshCache();
-					paintRest();
+					pendingLive = true;
+					return;
 				}
-				else
-				{
-					paintTarget();
-				}
-				paintPace();
+				paintLive();
 			}
 		});
 	}
@@ -252,6 +345,7 @@ public class CoxGrindPanel extends PluginPanel
 			public void run()
 			{
 				live = false;
+				pendingLive = false;
 				liveRaid = null;
 				liveOpenSeconds = -1;
 				liveInProgress = false;
@@ -270,32 +364,28 @@ public class CoxGrindPanel extends PluginPanel
 		try
 		{
 			cachedRaids = loadAll();
-			logStamp = currentLogStamp();
+			fillSizeBox(cachedRaids);
+			paceStats = RaidReportFormatter.paceStats(cachedRaids, (RaidModeFilter) modeBox.getSelectedItem(), (RaidSizeFilter) sizeBox.getSelectedItem(), reportOptions());
 		}
 		catch (IOException ex)
 		{
 			cachedRaids = java.util.Collections.emptyList();
+			paceStats = RaidReportFormatter.paceStats(cachedRaids, (RaidModeFilter) modeBox.getSelectedItem(), (RaidSizeFilter) sizeBox.getSelectedItem(), reportOptions());
 		}
+		dataGeneration++;
 	}
 
-	private long currentLogStamp()
+	private void paintLive()
 	{
-		if (accountHash == null || accountHash.isEmpty())
+		pendingLive = false;
+		int tab = tabs.getSelectedIndex();
+		if (tab <= 0)
 		{
-			return Long.MIN_VALUE;
+			paintPace();
 		}
-		try
+		else if (tab == 1 && !targetTimes.showsLastAverage())
 		{
-			Path file = store.accountFile(accountHash);
-			if (!Files.exists(file))
-			{
-				return Long.MIN_VALUE;
-			}
-			return Files.getLastModifiedTime(file).toMillis();
-		}
-		catch (IOException ex)
-		{
-			return Long.MIN_VALUE;
+			paintTarget();
 		}
 	}
 
@@ -312,30 +402,30 @@ public class CoxGrindPanel extends PluginPanel
 		{
 			RaidModeFilter mode = (RaidModeFilter) modeBox.getSelectedItem();
 			RaidSizeFilter size = (RaidSizeFilter) sizeBox.getSelectedItem();
-			CoxRaidRecord subject = live ? liveRaid : null;
-			pace = RaidReportFormatter.paceView(cachedRaids, mode, size, reportOptions(), subject, liveOpenSeconds, live && liveInProgress);
+			if (live && paceStats != null)
+			{
+				pace = RaidReportFormatter.livePace(paceStats, liveRaid, liveOpenSeconds, liveInProgress);
+			}
+			else
+			{
+				CoxRaidRecord subject = live ? liveRaid : null;
+				pace = RaidReportFormatter.paceView(cachedRaids, mode, size, reportOptions(), subject, liveOpenSeconds, live && liveInProgress);
+			}
 		}
 		catch (RuntimeException ex)
 		{
 			pace = new RaidReportFormatter.PaceComparison("Could not read the log.\n", java.util.Collections.<RaidReportFormatter.PacePoint>emptyList());
 		}
-		JScrollBar bar = paceScroll.getVerticalScrollBar();
-		int value = bar.getValue();
-		boolean followEnd = value + bar.getVisibleAmount() >= bar.getMaximum() - 24;
-		activeTimes.show(pace);
+		ScrollSpot spot = ScrollSpot.capture(paceScroll);
+		boolean laidOut = activeTimes.show(pace);
 		tabs.setToolTipTextAt(0, live ? "This raid vs your average" : "Recent raid vs your average");
-		SwingUtilities.invokeLater(new Runnable()
-		{
-			@Override
-			public void run()
-			{
-				JScrollBar again = paceScroll.getVerticalScrollBar();
-				again.setValue(followEnd ? again.getMaximum() : value);
-			}
-		});
 		paceGraph.setPoints(pace.getPoints());
-		paceColumn.revalidate();
-		paceScroll.revalidate();
+		if (laidOut)
+		{
+			paceColumn.revalidate();
+			paceScroll.revalidate();
+			spot.restoreLater();
+		}
 	}
 
 	private void paintRest()
@@ -347,8 +437,7 @@ public class CoxGrindPanel extends PluginPanel
 			RaidModeFilter mode = (RaidModeFilter) modeBox.getSelectedItem();
 			RaidSizeFilter size = (RaidSizeFilter) sizeBox.getSelectedItem();
 			ReportOptions options = reportOptions();
-			CoxRaidRecord subject = live ? liveRaid : null;
-			targets = RaidReportFormatter.targetView(cachedRaids, mode, size, options, subject, liveOpenSeconds, live && liveInProgress);
+			targets = targetComparison(mode, size, options);
 			bests = RaidReportFormatter.bestView(cachedRaids, mode, size, options, bestFocus());
 			if (cachedRaids.isEmpty())
 			{
@@ -369,23 +458,28 @@ public class CoxGrindPanel extends PluginPanel
 			bests = targets;
 			purplePanel.showNotice("Could not read the log.");
 		}
-		JScrollBar bar = targetScroll.getVerticalScrollBar();
-		int value = bar.getValue();
-		boolean followEnd = value + bar.getVisibleAmount() >= bar.getMaximum() - 24;
-		targetTimes.show(targets);
-		targetGraph.setEmptyText(graphNotice(targets.getText()));
-		targetGraph.setPoints(targets.getPoints());
-		targetColumn.revalidate();
-		targetScroll.revalidate();
-		SwingUtilities.invokeLater(new Runnable()
+		applyTarget(targets);
+		bestTimes.show(bests);
+		paintedGeneration = dataGeneration;
+	}
+
+	private void paintBest()
+	{
+		RaidReportFormatter.PaceComparison bests;
+		try
 		{
-			@Override
-			public void run()
-			{
-				JScrollBar again = targetScroll.getVerticalScrollBar();
-				again.setValue(followEnd ? again.getMaximum() : value);
-			}
-		});
+			bests = RaidReportFormatter.bestView(
+				cachedRaids,
+				(RaidModeFilter) modeBox.getSelectedItem(),
+				(RaidSizeFilter) sizeBox.getSelectedItem(),
+				reportOptions(),
+				bestFocus()
+			);
+		}
+		catch (RuntimeException ex)
+		{
+			bests = new RaidReportFormatter.PaceComparison("Could not read the log.\n", java.util.Collections.<RaidReportFormatter.PacePoint>emptyList());
+		}
 		bestTimes.show(bests);
 	}
 
@@ -394,20 +488,50 @@ public class CoxGrindPanel extends PluginPanel
 		RaidReportFormatter.PaceComparison targets;
 		try
 		{
-			RaidModeFilter mode = (RaidModeFilter) modeBox.getSelectedItem();
-			RaidSizeFilter size = (RaidSizeFilter) sizeBox.getSelectedItem();
-			CoxRaidRecord subject = live ? liveRaid : null;
-			targets = RaidReportFormatter.targetView(cachedRaids, mode, size, reportOptions(), subject, liveOpenSeconds, live && liveInProgress);
+			targets = targetComparison(
+				(RaidModeFilter) modeBox.getSelectedItem(),
+				(RaidSizeFilter) sizeBox.getSelectedItem(),
+				reportOptions()
+			);
 		}
 		catch (RuntimeException ex)
 		{
 			targets = new RaidReportFormatter.PaceComparison("Could not read the log.\n", java.util.Collections.<RaidReportFormatter.PacePoint>emptyList());
 		}
-		targetTimes.show(targets);
+		applyTarget(targets);
+	}
+
+	/** This is one raid against the sheet. Last N is the average of that many filtered raids. */
+	private RaidReportFormatter.PaceComparison targetComparison(RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
+	{
+		if (targetTimes.showsLastAverage())
+		{
+			return RaidReportFormatter.lastAverageTargetView(cachedRaids, mode, size, options, targetTimes.getCount());
+		}
+		CoxRaidRecord subject = live ? liveRaid : null;
+		return RaidReportFormatter.targetView(cachedRaids, mode, size, options, subject, liveOpenSeconds, live && liveInProgress);
+	}
+
+	private void applyTarget(RaidReportFormatter.PaceComparison targets)
+	{
+		ScrollSpot spot = ScrollSpot.capture(targetScroll);
+		boolean laidOut = targetTimes.show(targets);
 		targetGraph.setEmptyText(graphNotice(targets.getText()));
 		targetGraph.setPoints(targets.getPoints());
-		targetColumn.revalidate();
-		targetScroll.revalidate();
+		if (targetTimes.showsLastAverage())
+		{
+			tabs.setToolTipTextAt(1, "Last " + targetTimes.getCount() + " raids vs your targets");
+		}
+		else
+		{
+			tabs.setToolTipTextAt(1, "This raid vs your targets");
+		}
+		if (laidOut)
+		{
+			targetColumn.revalidate();
+			targetScroll.revalidate();
+			spot.restoreLater();
+		}
 	}
 
 	private void restoreFilters()
@@ -417,13 +541,14 @@ public class CoxGrindPanel extends PluginPanel
 			return;
 		}
 		RaidModeFilter mode = enumValue(RaidModeFilter.class, configManager.getConfiguration(FILTER_GROUP, MODE_KEY));
-		RaidSizeFilter size = enumValue(RaidSizeFilter.class, configManager.getConfiguration(FILTER_GROUP, SIZE_KEY));
+		RaidSizeFilter size = RaidSizeFilter.fromKey(configManager.getConfiguration(FILTER_GROUP, SIZE_KEY));
 		if (mode != null)
 		{
 			modeBox.setSelectedItem(mode);
 		}
 		if (size != null)
 		{
+			pendingSize = size;
 			sizeBox.setSelectedItem(size);
 		}
 	}
@@ -442,8 +567,78 @@ public class CoxGrindPanel extends PluginPanel
 		}
 		if (size != null)
 		{
-			configManager.setConfiguration(FILTER_GROUP, SIZE_KEY, size.name());
+			configManager.setConfiguration(FILTER_GROUP, SIZE_KEY, size.key());
 		}
+	}
+
+	/**
+	 * All, Solo, and Team stay put. Each party size of 2 or more in the log is added after Team.
+	 * A chosen size that is not in this log stays in the menu.
+	 */
+	private void fillSizeBox(List<CoxRaidRecord> raids)
+	{
+		java.util.TreeSet<Integer> parties = new java.util.TreeSet<>();
+		if (raids != null)
+		{
+			for (int i = 0; i < raids.size(); i++)
+			{
+				CoxRaidRecord raid = raids.get(i);
+				if (raid != null && raid.getTeamSize() >= 2)
+				{
+					parties.add(raid.getTeamSize());
+				}
+			}
+		}
+		RaidSizeFilter selected = pendingSize != null ? pendingSize : (RaidSizeFilter) sizeBox.getSelectedItem();
+		pendingSize = null;
+		if (selected != null && selected.getParty() >= 2)
+		{
+			parties.add(selected.getParty());
+		}
+		if (sameSizes(parties))
+		{
+			if (selected != null && !selected.equals(sizeBox.getSelectedItem()))
+			{
+				fillingSizes = true;
+				sizeBox.setSelectedItem(selected);
+				fillingSizes = false;
+			}
+			return;
+		}
+		fillingSizes = true;
+		sizeBox.removeAllItems();
+		sizeBox.addItem(RaidSizeFilter.ALL);
+		sizeBox.addItem(RaidSizeFilter.SOLO);
+		sizeBox.addItem(RaidSizeFilter.TEAM);
+		for (Integer party : parties)
+		{
+			sizeBox.addItem(RaidSizeFilter.of(party));
+		}
+		if (selected != null)
+		{
+			sizeBox.setSelectedItem(selected);
+		}
+		fillingSizes = false;
+	}
+
+	private boolean sameSizes(java.util.TreeSet<Integer> parties)
+	{
+		int expected = 3 + parties.size();
+		if (sizeBox.getItemCount() != expected)
+		{
+			return false;
+		}
+		int index = 3;
+		for (Integer party : parties)
+		{
+			RaidSizeFilter item = sizeBox.getItemAt(index);
+			if (item == null || item.getParty() != party)
+			{
+				return false;
+			}
+			index++;
+		}
+		return true;
 	}
 
 	private static <T extends Enum<T>> T enumValue(Class<T> type, String name)
@@ -473,10 +668,11 @@ public class CoxGrindPanel extends PluginPanel
 				(RaidSizeFilter) sizeBox.getSelectedItem(),
 				reportOptions()
 			);
-			ColoredText.show(this, "CoXGrind report", report);
+			ColoredText.show(this, "Cox Grind report", report);
 		}
-		catch (Exception ignored)
+		catch (Exception ex)
 		{
+			log.warn("Cox Grind could not open the report", ex);
 		}
 	}
 
@@ -491,43 +687,22 @@ public class CoxGrindPanel extends PluginPanel
 			}
 			Desktop.getDesktop().open(store.getRoot().toFile());
 		}
-		catch (Exception ignored)
+		catch (Exception ex)
 		{
+			log.warn("Cox Grind could not open the log folder", ex);
 		}
 	}
 
 	private ReportOptions reportOptions()
 	{
-		ReportOptions options = ReportOptions.defaults(lastN());
+		ReportOptions options = ReportOptions.defaults(10);
 		options.setTargets(TargetSettings.from(config));
-		if (config == null)
-		{
-			return options;
-		}
-		options.setReportRaids(config.reportRaids());
-		options.setDeathFullRegular(config.deathFullRegular());
-		options.setDeathRegular(config.deathRegular());
-		options.setDeathCmSolo(config.deathCmSolo());
-		options.setDeathCmTeam(config.deathCmTeam());
-		options.setPurpleSummary(config.showPurpleSummary());
-		options.setTrackedPurples(config.showTrackedPurples());
-		options.setRoomEfficiency(config.showRoomEfficiency());
-		options.setCommonRooms(config.showCommonRooms());
-		options.setOutliers(config.showOutliers());
-		TargetStyle style = options.getTargetStyle();
-		style.setUseTbow(config.useTbow());
-		style.setSlayerHelm(config.slayerHelm());
-		style.setLockpick(config.lockpick());
-		style.setAxe(config.axe());
-		style.setSalve(config.salve());
-		style.setPreVeng(config.preVeng());
-		style.setVespPotSkip(config.vespPotSkip());
-		style.setCrabTank(config.crabTank());
-		style.setIceMilking(config.iceMilking());
-		style.setIceMilkSeconds(config.iceMilkSeconds());
-		style.setKillRope(config.killRope());
-		style.setMilkVespula(config.milkVespula());
-		style.setOverThieve(config.overThieve());
+		options.setTargetStyle(TargetSettings.style(config));
+		options.setPurpleSummary(true);
+		options.setTrackedPurples(true);
+		options.setRoomEfficiency(true);
+		options.setCommonRooms(true);
+		options.setOutliers(true);
 		return options;
 	}
 
@@ -538,16 +713,6 @@ public class CoxGrindPanel extends PluginPanel
 			return java.util.Collections.emptyList();
 		}
 		return store.load(accountHash);
-	}
-
-	private int lastN()
-	{
-		int value = config == null ? 10 : config.lastRaids();
-		if (value < 1)
-		{
-			return 10;
-		}
-		return Math.min(value, 100);
 	}
 
 	private String bestFocus()
@@ -570,6 +735,10 @@ public class CoxGrindPanel extends PluginPanel
 		{
 			return "Set targets in plugin settings.";
 		}
+		if (text.startsWith("No times"))
+		{
+			return "No times in this window.";
+		}
 		if (text.startsWith("No completed") || text.startsWith("No raids"))
 		{
 			return "No raids in this filter.";
@@ -577,6 +746,10 @@ public class CoxGrindPanel extends PluginPanel
 		if (text.startsWith("Pick Regular"))
 		{
 			return "Pick Regular, Regular full, or CM.";
+		}
+		if (text.startsWith("Pick Solo"))
+		{
+			return "Pick Solo or Team.";
 		}
 		if (text.startsWith("Could not"))
 		{
@@ -627,6 +800,42 @@ public class CoxGrindPanel extends PluginPanel
 		}
 	}
 
+	/** Scroll position taken before a list changes height, put back after layout. */
+	private static final class ScrollSpot
+	{
+		private final JScrollPane scroll;
+		private final int value;
+		private final boolean followEnd;
+
+		private ScrollSpot(JScrollPane scroll, int value, boolean followEnd)
+		{
+			this.scroll = scroll;
+			this.value = value;
+			this.followEnd = followEnd;
+		}
+
+		private static ScrollSpot capture(JScrollPane scroll)
+		{
+			JScrollBar bar = scroll.getVerticalScrollBar();
+			int value = bar.getValue();
+			boolean followEnd = value + bar.getVisibleAmount() >= bar.getMaximum() - 24;
+			return new ScrollSpot(scroll, value, followEnd);
+		}
+
+		private void restoreLater()
+		{
+			SwingUtilities.invokeLater(new Runnable()
+			{
+				@Override
+				public void run()
+				{
+					JScrollBar again = scroll.getVerticalScrollBar();
+					again.setValue(followEnd ? again.getMaximum() : value);
+				}
+			});
+		}
+	}
+
 	/**
 	 * One column: the split list, then the graph. The tab scrolls this as a single piece.
 	 */
@@ -634,6 +843,8 @@ public class CoxGrindPanel extends PluginPanel
 	{
 		private final ActiveTimes list;
 		private final PaceGraph graph;
+		private int appliedWidth = -1;
+		private int appliedHeight = -1;
 
 		private PaceColumn(ActiveTimes list, PaceGraph graph)
 		{
@@ -649,11 +860,15 @@ public class CoxGrindPanel extends PluginPanel
 		{
 			int width = columnWidth();
 			int listHeight = list.preferredHeight(width);
-			Dimension size = new Dimension(width, listHeight);
-			list.setPreferredSize(size);
-			list.setMinimumSize(size);
-			list.setMaximumSize(new Dimension(Integer.MAX_VALUE, listHeight));
-			list.setSize(size);
+			if (appliedWidth != width || appliedHeight != listHeight)
+			{
+				appliedWidth = width;
+				appliedHeight = listHeight;
+				Dimension size = new Dimension(width, listHeight);
+				list.setPreferredSize(size);
+				list.setMinimumSize(size);
+				list.setMaximumSize(new Dimension(Integer.MAX_VALUE, listHeight));
+			}
 			int graphHeight = graph.getPreferredSize().height;
 			return new Dimension(width, listHeight + graphHeight);
 		}

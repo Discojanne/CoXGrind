@@ -10,19 +10,25 @@ import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.Scrollable;
+import javax.swing.SwingUtilities;
 import net.runelite.client.ui.ColorScheme;
 
 /**
  * Drawn split list for Active, Target, and Bests.
  * One line per room, grouped into Rooms, Olm, and Finish.
  * A quiet line splits the upper floor from the middle, and the middle from the lower.
+ * Right-click copies the list to the clipboard as a Discord code block.
  */
 public class ActiveTimes extends JPanel implements Scrollable
 {
@@ -42,6 +48,9 @@ public class ActiveTimes extends JPanel implements Scrollable
 	private static final Font TIME = new Font(Font.SANS_SERIF, Font.BOLD, 13);
 	private static final Font DIFF = new Font(Font.SANS_SERIF, Font.BOLD, 12);
 	private static final Font BADGE = new Font(Font.SANS_SERIF, Font.BOLD, 11);
+	private static final Font HEADER = new Font(Font.SANS_SERIF, Font.PLAIN, 11);
+	private static final Font HEADER_BOLD = new Font(Font.SANS_SERIF, Font.BOLD, 11);
+	private static final Color FLOOR_LINE = new Color(96, 96, 96);
 	private static final int ROW = 18;
 	private static final int SECTION_H = 14;
 	private static final int FLOOR_GAP = 4;
@@ -60,6 +69,15 @@ public class ActiveTimes extends JPanel implements Scrollable
 	private Runnable onChoice;
 	private int[] choiceX = new int[0];
 	private int[] choiceW = new int[0];
+	private int count = 10;
+	private int countMin = 1;
+	private int countMax = 100;
+	private int countChoice = -1;
+	private Runnable onCount;
+	private int stepMinusX = -1;
+	private int stepMinusW;
+	private int stepPlusX = -1;
+	private int stepPlusW;
 
 	public ActiveTimes()
 	{
@@ -70,6 +88,13 @@ public class ActiveTimes extends JPanel implements Scrollable
 			@Override
 			public void mouseMoved(MouseEvent event)
 			{
+				int step = stepAt(event.getX(), event.getY());
+				if (step != 0)
+				{
+					setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+					setToolTipText(stepTip(step));
+					return;
+				}
 				int index = choiceAt(event.getX(), event.getY());
 				setCursor(index >= 0 ? Cursor.getPredefinedCursor(Cursor.HAND_CURSOR) : Cursor.getDefaultCursor());
 				setToolTipText(index >= 0 ? choiceTip(index) : tipAt(event.getY()));
@@ -78,8 +103,30 @@ public class ActiveTimes extends JPanel implements Scrollable
 		addMouseListener(new MouseAdapter()
 		{
 			@Override
+			public void mousePressed(MouseEvent event)
+			{
+				showCopyMenu(event);
+			}
+
+			@Override
+			public void mouseReleased(MouseEvent event)
+			{
+				showCopyMenu(event);
+			}
+
+			@Override
 			public void mouseClicked(MouseEvent event)
 			{
+				if (!SwingUtilities.isLeftMouseButton(event))
+				{
+					return;
+				}
+				int step = stepAt(event.getX(), event.getY());
+				if (step == -1 || step == 1)
+				{
+					nudgeCount(step, event.isShiftDown());
+					return;
+				}
 				int index = choiceAt(event.getX(), event.getY());
 				if (index < 0 || index == choice || onChoice == null)
 				{
@@ -89,6 +136,149 @@ public class ActiveTimes extends JPanel implements Scrollable
 				onChoice.run();
 			}
 		});
+	}
+
+	/**
+	 * Discord code block of the rows on screen. Comparison diffs stay off the paste.
+	 * A kill count in the right column, used by Best splits, is kept.
+	 */
+	static String discordSplits(List<RaidReportFormatter.TimeRow> rows, String title)
+	{
+		if (rows == null || rows.isEmpty())
+		{
+			return "";
+		}
+		String[] names = new String[rows.size()];
+		String[] values = new String[rows.size()];
+		String[] counts = new String[rows.size()];
+		int nameWidth = 0;
+		int valueWidth = 0;
+		for (int i = 0; i < rows.size(); i++)
+		{
+			RaidReportFormatter.TimeRow row = rows.get(i);
+			names[i] = shown(row.getLabel());
+			values[i] = discordValue(row);
+			counts[i] = killCount(row.getDiff());
+			nameWidth = Math.max(nameWidth, names[i].length());
+			valueWidth = Math.max(valueWidth, values[i].length());
+		}
+		StringBuilder out = new StringBuilder();
+		out.append("```\n");
+		if (title != null && !title.isEmpty())
+		{
+			out.append(title).append('\n');
+		}
+		String section = "";
+		boolean grouped = false;
+		for (int i = 0; i < rows.size(); i++)
+		{
+			String next = sectionOf(rows.get(i));
+			if (next != null && !next.equals(section))
+			{
+				if (grouped)
+				{
+					out.append('\n');
+				}
+				section = next;
+				grouped = true;
+			}
+			out.append(padRight(names[i], nameWidth));
+			out.append("  ");
+			out.append(padLeft(values[i], valueWidth));
+			if (!counts[i].isEmpty())
+			{
+				out.append("  ").append(counts[i]);
+			}
+			out.append('\n');
+		}
+		out.append("```");
+		return out.toString();
+	}
+
+	private void showCopyMenu(MouseEvent event)
+	{
+		if (!event.isPopupTrigger() || rows.isEmpty())
+		{
+			return;
+		}
+		JPopupMenu menu = new JPopupMenu();
+		JMenuItem copy = new JMenuItem("Copy splits");
+		copy.addActionListener(action -> copySplits());
+		menu.add(copy);
+		menu.show(this, event.getX(), event.getY());
+	}
+
+	private void copySplits()
+	{
+		String text = discordSplits(rows, copyTitle());
+		if (text.isEmpty())
+		{
+			return;
+		}
+		Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(text), null);
+	}
+
+	private String copyTitle()
+	{
+		if (showsLastAverage())
+		{
+			return "Last " + count;
+		}
+		if (!badge.isEmpty())
+		{
+			return badge;
+		}
+		if (choice >= 0 && choice < choices.length)
+		{
+			return choices[choice];
+		}
+		return "";
+	}
+
+	private static String discordValue(RaidReportFormatter.TimeRow row)
+	{
+		String value = row.getValue();
+		if (row.isPoints() || value.indexOf(':') < 0)
+		{
+			return value;
+		}
+		int colon = value.indexOf(':');
+		int start = 0;
+		while (start < colon - 1 && value.charAt(start) == '0')
+		{
+			start++;
+		}
+		return value.substring(start);
+	}
+
+	private static String killCount(String diff)
+	{
+		if (diff != null && (diff.startsWith("CM ") || diff.startsWith("KC ")))
+		{
+			return diff;
+		}
+		return "";
+	}
+
+	private static String padRight(String text, int width)
+	{
+		StringBuilder out = new StringBuilder(text);
+		while (out.length() < width)
+		{
+			out.append(' ');
+		}
+		return out.toString();
+	}
+
+	private static String padLeft(String text, int width)
+	{
+		StringBuilder out = new StringBuilder();
+		while (out.length() + text.length() < width)
+		{
+			out.append(' ');
+		}
+		out.append(text);
+		return out.toString();
 	}
 
 	/** Small titles in the header. Used by the Bests list to switch what is shown. */
@@ -105,8 +295,65 @@ public class ActiveTimes extends JPanel implements Scrollable
 		return choice;
 	}
 
-	public void show(RaidReportFormatter.PaceComparison pace)
+	/** True when the Last N title is selected. */
+	public boolean showsLastAverage()
 	{
+		return countChoice >= 0 && choice == countChoice;
+	}
+
+	/**
+	 * The title at {@code choiceIndex} shows how many raids are averaged, as {@code Last 10}.
+	 * Minus and plus sit on either side of that title. Shift-click moves by 10.
+	 * {@code listener} runs after the number changes. The number stays inside {@code min} and {@code max}.
+	 */
+	public void setCount(int choiceIndex, int value, int min, int max, Runnable listener)
+	{
+		countChoice = choiceIndex;
+		countMin = Math.min(min, max);
+		countMax = Math.max(min, max);
+		count = Math.max(countMin, Math.min(countMax, value));
+		onCount = listener;
+		repaint();
+	}
+
+	public int getCount()
+	{
+		return count;
+	}
+
+	private void nudgeCount(int direction, boolean shift)
+	{
+		int next = count + direction * (shift ? 10 : 1);
+		if (next < countMin)
+		{
+			next = countMin;
+		}
+		if (next > countMax)
+		{
+			next = countMax;
+		}
+		if (next == count)
+		{
+			return;
+		}
+		count = next;
+		if (onCount != null)
+		{
+			onCount.run();
+		}
+		else
+		{
+			repaint();
+		}
+	}
+
+	/**
+	 * Draws this comparison. Returns true when the list height changed and the parent should lay out again.
+	 * A clock tick that only changes a time repaints in place.
+	 */
+	public boolean show(RaidReportFormatter.PaceComparison pace)
+	{
+		boolean layout = !sameShape(pace);
 		if (pace == null || pace.getRows().isEmpty())
 		{
 			rows = Collections.emptyList();
@@ -150,8 +397,44 @@ public class ActiveTimes extends JPanel implements Scrollable
 				badge = "";
 			}
 		}
-		revalidate();
+		if (layout)
+		{
+			revalidate();
+		}
 		repaint();
+		return layout;
+	}
+
+	/** Same notice-or-rows shape, so the preferred height is unchanged. */
+	private boolean sameShape(RaidReportFormatter.PaceComparison pace)
+	{
+		boolean nextNotice = pace == null || pace.getRows().isEmpty();
+		if (nextNotice != (notice != null))
+		{
+			return false;
+		}
+		if (nextNotice)
+		{
+			return true;
+		}
+		String nextNote = pace.getNote() == null ? "" : pace.getNote();
+		if (nextNote.isEmpty() != note.isEmpty())
+		{
+			return false;
+		}
+		List<RaidReportFormatter.TimeRow> nextRows = pace.getRows();
+		if (nextRows.size() != rows.size())
+		{
+			return false;
+		}
+		for (int i = 0; i < nextRows.size(); i++)
+		{
+			if (!nextRows.get(i).getLabel().equals(rows.get(i).getLabel()))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	public int preferredHeight(int width)
@@ -182,15 +465,18 @@ public class ActiveTimes extends JPanel implements Scrollable
 			return;
 		}
 
-		g.setFont(BADGE);
-		g.setColor(badgeColor);
-		if (!badge.isEmpty())
+		if (!showsLastAverage())
 		{
-			g.drawString(badge, 8, 12);
+			g.setFont(BADGE);
+			g.setColor(badgeColor);
+			if (!badge.isEmpty())
+			{
+				g.drawString(badge, 8, 12);
+			}
 		}
 		if (choices.length == 0)
 		{
-			g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+			g.setFont(HEADER);
 			g.setColor(MUTED);
 			int captionX = getWidth() - 8 - g.getFontMetrics().stringWidth(caption);
 			if (!caption.isEmpty())
@@ -206,7 +492,7 @@ public class ActiveTimes extends JPanel implements Scrollable
 		int cardTop = 16 + (note.isEmpty() ? 0 : 26);
 		if (!note.isEmpty())
 		{
-			g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+			g.setFont(HEADER);
 			g.setColor(MUTED);
 			g.drawString(clip(g.getFontMetrics(), note, Math.max(20, getWidth() - 16)), 8, 28);
 		}
@@ -250,7 +536,7 @@ public class ActiveTimes extends JPanel implements Scrollable
 			if (floorBreakBefore(i))
 			{
 				int lineY = y + (FLOOR_GAP / 2);
-				g.setColor(new Color(96, 96, 96));
+				g.setColor(FLOOR_LINE);
 				g.drawLine(20, lineY, 4 + cardWidth - 20, lineY);
 				y += FLOOR_GAP;
 			}
@@ -329,30 +615,94 @@ public class ActiveTimes extends JPanel implements Scrollable
 
 	private void paintChoices(Graphics2D g)
 	{
+		stepMinusW = 0;
+		stepPlusW = 0;
 		if (choices.length == 0)
 		{
 			choiceX = new int[0];
 			choiceW = new int[0];
 			return;
 		}
-		g.setFont(new Font(Font.SANS_SERIF, Font.PLAIN, 11));
+		g.setFont(HEADER);
 		FontMetrics plain = g.getFontMetrics();
-		g.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+		g.setFont(HEADER_BOLD);
 		FontMetrics bold = g.getFontMetrics();
 		choiceX = new int[choices.length];
 		choiceW = new int[choices.length];
 		int x = getWidth() - 8;
 		for (int i = choices.length - 1; i >= 0; i--)
 		{
-			int width = i == choice ? bold.stringWidth(choices[i]) : plain.stringWidth(choices[i]);
-			x -= width;
-			choiceX[i] = x;
-			choiceW[i] = width;
-			g.setFont(i == choice ? new Font(Font.SANS_SERIF, Font.BOLD, 11) : new Font(Font.SANS_SERIF, Font.PLAIN, 11));
-			g.setColor(i == choice ? INK : MUTED);
-			g.drawString(choices[i], x, 12);
+			if (i == countChoice)
+			{
+				x = paintCountChoice(g, i, x, i == choice ? bold : plain);
+			}
+			else
+			{
+				int width = i == choice ? bold.stringWidth(choices[i]) : plain.stringWidth(choices[i]);
+				x -= width;
+				choiceX[i] = x;
+				choiceW[i] = width;
+				g.setFont(i == choice ? HEADER_BOLD : HEADER);
+				g.setColor(i == choice ? INK : MUTED);
+				g.drawString(choices[i], x, 12);
+			}
 			x -= 10;
 		}
+	}
+
+	/** Draws {@code Last 10} with minus on the left and plus on the right. Returns the left edge. */
+	private int paintCountChoice(Graphics2D g, int index, int right, FontMetrics metrics)
+	{
+		String word = choices[index] == null ? "" : choices[index];
+		String title = word + " " + count;
+		int plusW = Math.max(12, metrics.stringWidth("+") + 6);
+		int minusW = Math.max(12, metrics.stringWidth("-") + 6);
+		int titleW = metrics.stringWidth(title);
+		int gap = 2;
+		int x = right - plusW;
+		stepPlusX = x;
+		stepPlusW = plusW;
+		g.setFont(metrics.getFont());
+		g.setColor(count < countMax ? (index == choice ? INK : MUTED) : HAIR);
+		g.drawString("+", x + 2, 12);
+		x -= gap + titleW;
+		choiceX[index] = x;
+		choiceW[index] = titleW;
+		g.setColor(index == choice ? INK : MUTED);
+		g.drawString(title, x, 12);
+		x -= gap + minusW;
+		stepMinusX = x;
+		stepMinusW = minusW;
+		g.setColor(count > countMin ? (index == choice ? INK : MUTED) : HAIR);
+		g.drawString("-", x + 2, 12);
+		return x;
+	}
+
+	/** -1 is fewer raids, 1 is more, 0 is anywhere else. */
+	private int stepAt(int x, int y)
+	{
+		if (countChoice < 0 || y > 16)
+		{
+			return 0;
+		}
+		if (stepMinusW > 0 && x >= stepMinusX && x < stepMinusX + stepMinusW)
+		{
+			return -1;
+		}
+		if (stepPlusW > 0 && x >= stepPlusX && x < stepPlusX + stepPlusW)
+		{
+			return 1;
+		}
+		return 0;
+	}
+
+	private String stepTip(int step)
+	{
+		if (step < 0)
+		{
+			return "Fewer raids. Shift changes by 10.";
+		}
+		return "More raids. Shift changes by 10.";
 	}
 
 	private int choiceAt(int x, int y)
@@ -384,6 +734,14 @@ public class ActiveTimes extends JPanel implements Scrollable
 		if ("PPH".equals(choices[index]))
 		{
 			return "Highest points per hour";
+		}
+		if (index == countChoice)
+		{
+			return "Average of your last " + count + " raids vs your targets";
+		}
+		if ("This".equals(choices[index]))
+		{
+			return "This raid vs your targets";
 		}
 		return "Fastest split in this filter";
 	}

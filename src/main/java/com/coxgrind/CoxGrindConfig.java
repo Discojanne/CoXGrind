@@ -1,5 +1,7 @@
 package com.coxgrind;
 
+import com.coxgrind.model.TargetSheet;
+import com.coxgrind.report.TargetTotals;
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
@@ -9,152 +11,10 @@ import net.runelite.client.config.Range;
 @ConfigGroup("coxgrind")
 public interface CoxGrindConfig extends Config
 {
-	@ConfigSection(
-		name = "Full report",
-		description = "Columns and extra tables in the full report.",
-		position = 50,
-		closedByDefault = true
-	)
-	String reportSection = "reportSection";
-
-	@Range(min = 1, max = 100)
-	@ConfigItem(
-		keyName = "lastRaids",
-		name = "Last N raids",
-		description = "How many recent raids to average in the Last N column of the report.",
-		section = "reportSection",
-		position = 0
-	)
-	default int lastRaids()
-	{
-		return 10;
-	}
-
-	@Range(min = 0, max = 10000)
-	@ConfigItem(
-		keyName = "reportRaids",
-		name = "Raids in report",
-		description = "0 uses every raid in the filter. Any other number uses only that many newest raids.",
-		section = "reportSection",
-		position = 1
-	)
-	default int reportRaids()
-	{
-		return 0;
-	}
-
-	@ConfigItem(
-		keyName = "deathFullRegular",
-		name = "Death: full regular",
-		description = "A solo full-layout regular raid under this many personal points counts as a death.",
-		section = "reportSection",
-		position = 2
-	)
-	default int deathFullRegular()
-	{
-		return 48000;
-	}
-
-	@ConfigItem(
-		keyName = "deathRegular",
-		name = "Death: regular",
-		description = "A solo regular raid that is not a full layout counts as a death under this many personal points.",
-		section = "reportSection",
-		position = 3
-	)
-	default int deathRegular()
-	{
-		return 29000;
-	}
-
-	@ConfigItem(
-		keyName = "deathCmSolo",
-		name = "Death: CM solo",
-		description = "A solo Challenge Mode raid under this many personal points counts as a death.",
-		section = "reportSection",
-		position = 4
-	)
-	default int deathCmSolo()
-	{
-		return 60000;
-	}
-
-	@ConfigItem(
-		keyName = "deathCmTeam",
-		name = "Death: CM team",
-		description = "A team Challenge Mode raid under this many personal points counts as a death.",
-		section = "reportSection",
-		position = 5
-	)
-	default int deathCmTeam()
-	{
-		return 40000;
-	}
-
-	@ConfigItem(
-		keyName = "showPurpleSummary",
-		name = "Purple summary",
-		description = "Show the purple summary, item table, history, and the death sections at the bottom of the full report.",
-		section = "reportSection",
-		position = 6
-	)
-	default boolean showPurpleSummary()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "showTrackedPurples",
-		name = "Tracked purples",
-		description = "List your purples, newest first.",
-		section = "reportSection",
-		position = 7
-	)
-	default boolean showTrackedPurples()
-	{
-		return true;
-	}
-
-	@ConfigItem(
-		keyName = "showRoomEfficiency",
-		name = "Room efficiency",
-		description = "Show average points per hour for each prep room.",
-		section = "reportSection",
-		position = 8
-	)
-	default boolean showRoomEfficiency()
-	{
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "showCommonRooms",
-		name = "Common rooms",
-		description = "Show which prep rooms you see most, and how often a raid has 5 or 6 rooms.",
-		section = "reportSection",
-		position = 9
-	)
-	default boolean showCommonRooms()
-	{
-		return false;
-	}
-
-	@ConfigItem(
-		keyName = "showOutliers",
-		name = "Discarded splits",
-		description = "List splits left out of the averages.",
-		section = "reportSection",
-		position = 10
-	)
-	default boolean showOutliers()
-	{
-		return true;
-	}
-
 	@ConfigItem(
 		keyName = "useTbow",
-		name = "Using twisted bow",
-		description = "On keeps those room targets as entered. Off adds Shamans 6s, Vanguards 2s, Tightrope 8s when killing rope is on, Vasa 30s, Muttadiles 10s, and Olm head 20s.",
+		name = "Using Twisted bow",
+		description = "Off adds 6 seconds to Shamans, 2 seconds to Vanguards, 8 seconds to Tightrope when killing rope is on, 30 seconds to Vasa, 10 seconds to Muttadiles, and 20 seconds to Olm head.",
 		position = 0
 	)
 	default boolean useTbow()
@@ -162,11 +22,20 @@ public interface CoxGrindConfig extends Config
 		return true;
 	}
 
+	@ConfigSection(
+		name = "Other",
+		description = "Settings that are not part of a raid target.",
+		position = 60,
+		closedByDefault = true
+	)
+	String otherSection = "otherSection";
+
 	@ConfigItem(
 		keyName = "trackVanguards",
 		name = "Track Vanguards",
 		description = "Logs each Challenge Mode Vanguard room to a vanguards file for later study. The raid log is unchanged. Nothing is drawn in game.",
-		position = 1
+		section = "otherSection",
+		position = 0
 	)
 	default boolean trackVanguards()
 	{
@@ -200,7 +69,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "slayerHelm",
 		name = "Slayer helm",
-		description = "On keeps Shamans as entered. Off adds 9 seconds.",
+		description = "Off adds 9 seconds to Shamans.",
 		section = "itemSection",
 		position = 0
 	)
@@ -212,7 +81,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "lockpick",
 		name = "Lockpick",
-		description = "On keeps Thieving as entered. Off adds 4 seconds.",
+		description = "Off adds 4 seconds to Thieving.",
 		section = "itemSection",
 		position = 1
 	)
@@ -224,7 +93,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "axe",
 		name = "Axe",
-		description = "On keeps Ice demon as entered. Off adds 5 seconds.",
+		description = "Off adds 5 seconds to Ice demon.",
 		section = "itemSection",
 		position = 2
 	)
@@ -236,7 +105,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "salve",
 		name = "Salve",
-		description = "On keeps Mystics as entered. Off adds 5 seconds.",
+		description = "Off adds 5 seconds to Mystics.",
 		section = "itemSection",
 		position = 3
 	)
@@ -248,7 +117,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "preVeng",
 		name = "Pre-veng",
-		description = "On keeps Tekton as entered. Off adds 4 seconds.",
+		description = "Off adds 4 seconds to Tekton.",
 		section = "strategySection",
 		position = 0
 	)
@@ -260,7 +129,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "vespPotSkip",
 		name = "Vesp pot skip",
-		description = "On keeps Tightrope as entered. Off adds 6 seconds.",
+		description = "Off adds 6 seconds to Tightrope.",
 		section = "strategySection",
 		position = 1
 	)
@@ -272,7 +141,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "crabTank",
 		name = "Crab tank",
-		description = "On keeps Crabs as entered. Off adds 4 seconds.",
+		description = "Off adds 4 seconds to Crabs.",
 		section = "strategySection",
 		position = 2
 	)
@@ -282,9 +151,33 @@ public interface CoxGrindConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "sippingPools",
+		name = "Sipping pools",
+		description = "On adds 12 seconds to Between rooms.",
+		section = "strategySection",
+		position = 3
+	)
+	default boolean sippingPools()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "bankAfterRope",
+		name = "Banking after rope",
+		description = "On adds 5 seconds to Between rooms.",
+		section = "strategySection",
+		position = 4
+	)
+	default boolean bankAfterRope()
+	{
+		return false;
+	}
+
+	@ConfigItem(
 		keyName = "killRope",
 		name = "Killing rope",
-		description = "Off leaves Tightrope as entered. On adds 59 seconds.",
+		description = "On adds 59 seconds to Tightrope.",
 		section = "moneyRunSection",
 		position = 0
 	)
@@ -296,7 +189,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "milkVespula",
 		name = "Vesp milk",
-		description = "Off leaves Vespula as entered. On adds 18 seconds.",
+		description = "On adds 18 seconds to Vespula.",
 		section = "moneyRunSection",
 		position = 1
 	)
@@ -308,7 +201,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "iceMilking",
 		name = "Ice milk",
-		description = "On adds the ice milk seconds to Ice demon, and includes Ice demon splits over 3:50, up to 4:30.",
+		description = "On adds the ice milk seconds to Ice demon.",
 		section = "moneyRunSection",
 		position = 2
 	)
@@ -321,7 +214,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "iceMilkSeconds",
 		name = "Ice milk seconds",
-		description = "Seconds added to the Ice demon target when ice milk is on.",
+		description = "Seconds added to Ice demon when ice milk is on.",
 		section = "moneyRunSection",
 		position = 3
 	)
@@ -333,7 +226,7 @@ public interface CoxGrindConfig extends Config
 	@ConfigItem(
 		keyName = "overThieve",
 		name = "Over-thieve",
-		description = "Off leaves Thieving as entered. On adds 7 seconds.",
+		description = "On adds 7 seconds to Thieving.",
 		section = "moneyRunSection",
 		position = 4
 	)
@@ -343,144 +236,262 @@ public interface CoxGrindConfig extends Config
 	}
 
 	@ConfigSection(
-		name = "Regular targets",
-		description = "Benchmark times for regular raids. Times are MM:SS. Points and PPH are whole numbers. Blank means no target.",
+		name = "Regular solo",
+		description = "Benchmark times for regular solos, including regular full. Times are MM:SS. Points and PPH are whole numbers. Blank means no target.",
 		position = 40,
 		closedByDefault = true
 	)
-	String regularTargets = "regularTargets";
+	String regularSolo = "regularSolo";
 
 	@ConfigSection(
-		name = "CM targets",
-		description = "Benchmark times for Challenge Mode. Times are MM:SS. Points and PPH are whole numbers. Blank means no target.",
+		name = "Regular team",
+		description = "Benchmark times for regular teams, including regular full. Times are MM:SS. Points and PPH are whole numbers. Blank means no target.",
 		position = 41,
 		closedByDefault = true
 	)
-	String cmTargets = "cmTargets";
+	String regularTeam = "regularTeam";
 
-	@ConfigItem(keyName = "regTekton", name = "Tekton", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 0)
+	@ConfigSection(
+		name = "CM solo",
+		description = "Benchmark times for Challenge Mode solos. Times are MM:SS. Points and PPH are whole numbers. Blank means no target.",
+		position = 42,
+		closedByDefault = true
+	)
+	String cmSolo = "cmSolo";
+
+	@ConfigSection(
+		name = "CM team",
+		description = "Benchmark times for Challenge Mode teams. Times are MM:SS. Points and PPH are whole numbers. Blank means no target.",
+		position = 43,
+		closedByDefault = true
+	)
+	String cmTeam = "cmTeam";
+
+	@ConfigItem(keyName = "regSoloTotal", name = "Target total", description = "Pre-Olm plus Olm plus between rooms, including strategy adds. Calculated from the boxes below.", section = "regularSolo", position = 1)
+	default String regSoloTotal() { return TargetTotals.text(this, TargetSheet.REGULAR_SOLO); }
+
+	@ConfigItem(keyName = "regTekton", name = "Tekton", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 2)
 	default String regTekton() { return ""; }
 
-	@ConfigItem(keyName = "regCrabs", name = "Crabs", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 1)
+	@ConfigItem(keyName = "regCrabs", name = "Crabs", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 3)
 	default String regCrabs() { return ""; }
 
-	@ConfigItem(keyName = "regIceDemon", name = "Ice demon", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 2)
+	@ConfigItem(keyName = "regIceDemon", name = "Ice demon", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 4)
 	default String regIceDemon() { return ""; }
 
-	@ConfigItem(keyName = "regShamans", name = "Shamans", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 3)
+	@ConfigItem(keyName = "regShamans", name = "Shamans", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 5)
 	default String regShamans() { return ""; }
 
-	@ConfigItem(keyName = "regVanguards", name = "Vanguards", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 4)
+	@ConfigItem(keyName = "regVanguards", name = "Vanguards", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 6)
 	default String regVanguards() { return ""; }
 
-	@ConfigItem(keyName = "regThieving", name = "Thieving", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 5)
+	@ConfigItem(keyName = "regThieving", name = "Thieving", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 7)
 	default String regThieving() { return ""; }
 
-	@ConfigItem(keyName = "regVespula", name = "Vespula", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 6)
+	@ConfigItem(keyName = "regVespula", name = "Vespula", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 8)
 	default String regVespula() { return ""; }
 
-	@ConfigItem(keyName = "regTightrope", name = "Tightrope", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 7)
+	@ConfigItem(keyName = "regTightrope", name = "Tightrope", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 9)
 	default String regTightrope() { return ""; }
 
-	@ConfigItem(keyName = "regGuardians", name = "Guardians", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 8)
+	@ConfigItem(keyName = "regGuardians", name = "Guardians", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 10)
 	default String regGuardians() { return ""; }
 
-	@ConfigItem(keyName = "regVasa", name = "Vasa", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 9)
+	@ConfigItem(keyName = "regVasa", name = "Vasa", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 11)
 	default String regVasa() { return ""; }
 
-	@ConfigItem(keyName = "regMystics", name = "Mystics", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 10)
+	@ConfigItem(keyName = "regMystics", name = "Mystics", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 12)
 	default String regMystics() { return ""; }
 
-	@ConfigItem(keyName = "regMuttadiles", name = "Muttadiles", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 11)
+	@ConfigItem(keyName = "regMuttadiles", name = "Muttadiles", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 13)
 	default String regMuttadiles() { return ""; }
 
-	@ConfigItem(keyName = "regOlmMage1", name = "Olm mage hand phase 1", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 12)
-	default String regOlmMage1() { return ""; }
+	@ConfigItem(keyName = "regOlmMage", name = "Olm mage hand", description = "MM:SS. Used for every mage hand. The last phase has none. Blank means no target.", section = "regularSolo", position = 14)
+	default String regOlmMage() { return ""; }
 
-	@ConfigItem(keyName = "regOlmPhase1", name = "Olm phase 1", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 14)
-	default String regOlmPhase1() { return ""; }
+	@ConfigItem(keyName = "regOlmPhase", name = "Olm phase", description = "MM:SS. Used for every Olm phase. Blank means no target.", section = "regularSolo", position = 16)
+	default String regOlmPhase() { return ""; }
 
-	@ConfigItem(keyName = "regOlmMage2", name = "Olm mage hand phase 2", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 15)
-	default String regOlmMage2() { return ""; }
-
-	@ConfigItem(keyName = "regOlmPhase2", name = "Olm phase 2", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 16)
-	default String regOlmPhase2() { return ""; }
-
-	@ConfigItem(keyName = "regOlmPhase3", name = "Olm phase 3", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 17)
-	default String regOlmPhase3() { return ""; }
-
-	@ConfigItem(keyName = "regOlmHead", name = "Olm head", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 18)
+	@ConfigItem(keyName = "regOlmHead", name = "Olm head", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 20)
 	default String regOlmHead() { return ""; }
 
-	@ConfigItem(keyName = "regBetweenRooms", name = "Between room time", description = "MM:SS. Blank means no target.", section = "regularTargets", position = 19)
+	@ConfigItem(keyName = "regBetweenRooms", name = "Between room time", description = "MM:SS. Blank means no target.", section = "regularSolo", position = 21)
 	default String regBetweenRooms() { return ""; }
 
-	@ConfigItem(keyName = "regTotalPoints", name = "Total Points", description = "Whole number. Blank means no target.", section = "regularTargets", position = 22)
+	@ConfigItem(keyName = "regTotalPoints", name = "Total Points", description = "Whole number. Blank means no target.", section = "regularSolo", position = 24)
 	default String regTotalPoints() { return ""; }
 
-	@ConfigItem(keyName = "regPph", name = "PPH", description = "Whole number. Blank means no target.", section = "regularTargets", position = 23)
+	@ConfigItem(keyName = "regPph", name = "PPH", description = "Whole number. Blank means no target.", section = "regularSolo", position = 25)
 	default String regPph() { return ""; }
 
-	@ConfigItem(keyName = "cmTekton", name = "Tekton", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 0)
+	@ConfigItem(keyName = "regTeamTotal", name = "Target total", description = "Pre-Olm plus Olm plus between rooms, including strategy adds. Calculated from the boxes below.", section = "regularTeam", position = 1)
+	default String regTeamTotal() { return TargetTotals.text(this, TargetSheet.REGULAR_TEAM); }
+
+	@ConfigItem(keyName = "regTeamTekton", name = "Tekton", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 2)
+	default String regTeamTekton() { return ""; }
+
+	@ConfigItem(keyName = "regTeamCrabs", name = "Crabs", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 3)
+	default String regTeamCrabs() { return ""; }
+
+	@ConfigItem(keyName = "regTeamIceDemon", name = "Ice demon", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 4)
+	default String regTeamIceDemon() { return ""; }
+
+	@ConfigItem(keyName = "regTeamShamans", name = "Shamans", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 5)
+	default String regTeamShamans() { return ""; }
+
+	@ConfigItem(keyName = "regTeamVanguards", name = "Vanguards", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 6)
+	default String regTeamVanguards() { return ""; }
+
+	@ConfigItem(keyName = "regTeamThieving", name = "Thieving", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 7)
+	default String regTeamThieving() { return ""; }
+
+	@ConfigItem(keyName = "regTeamVespula", name = "Vespula", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 8)
+	default String regTeamVespula() { return ""; }
+
+	@ConfigItem(keyName = "regTeamTightrope", name = "Tightrope", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 9)
+	default String regTeamTightrope() { return ""; }
+
+	@ConfigItem(keyName = "regTeamGuardians", name = "Guardians", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 10)
+	default String regTeamGuardians() { return ""; }
+
+	@ConfigItem(keyName = "regTeamVasa", name = "Vasa", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 11)
+	default String regTeamVasa() { return ""; }
+
+	@ConfigItem(keyName = "regTeamMystics", name = "Mystics", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 12)
+	default String regTeamMystics() { return ""; }
+
+	@ConfigItem(keyName = "regTeamMuttadiles", name = "Muttadiles", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 13)
+	default String regTeamMuttadiles() { return ""; }
+
+	@ConfigItem(keyName = "regTeamOlmMage", name = "Olm mage hand", description = "MM:SS. Used for every mage hand. The last phase has none. Blank means no target.", section = "regularTeam", position = 14)
+	default String regTeamOlmMage() { return ""; }
+
+	@ConfigItem(keyName = "regTeamOlmPhase", name = "Olm phase", description = "MM:SS. Used for every Olm phase. Blank means no target.", section = "regularTeam", position = 16)
+	default String regTeamOlmPhase() { return ""; }
+
+	@ConfigItem(keyName = "regTeamOlmHead", name = "Olm head", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 20)
+	default String regTeamOlmHead() { return ""; }
+
+	@ConfigItem(keyName = "regTeamBetweenRooms", name = "Between room time", description = "MM:SS. Blank means no target.", section = "regularTeam", position = 21)
+	default String regTeamBetweenRooms() { return ""; }
+
+	@ConfigItem(keyName = "regTeamTotalPoints", name = "Total Points", description = "Whole number. Blank means no target.", section = "regularTeam", position = 24)
+	default String regTeamTotalPoints() { return ""; }
+
+	@ConfigItem(keyName = "regTeamPph", name = "PPH", description = "Whole number. Blank means no target.", section = "regularTeam", position = 25)
+	default String regTeamPph() { return ""; }
+
+	@ConfigItem(keyName = "cmSoloTotal", name = "Target total", description = "Pre-Olm plus Olm plus between rooms, including strategy adds. Calculated from the boxes below.", section = "cmSolo", position = 1)
+	default String cmSoloTotal() { return TargetTotals.text(this, TargetSheet.CM_SOLO); }
+
+	@ConfigItem(keyName = "cmTekton", name = "Tekton", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 2)
 	default String cmTekton() { return "1:10"; }
 
-	@ConfigItem(keyName = "cmCrabs", name = "Crabs", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 1)
+	@ConfigItem(keyName = "cmCrabs", name = "Crabs", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 3)
 	default String cmCrabs() { return "0:56"; }
 
-	@ConfigItem(keyName = "cmIceDemon", name = "Ice demon", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 2)
+	@ConfigItem(keyName = "cmIceDemon", name = "Ice demon", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 4)
 	default String cmIceDemon() { return "2:24"; }
 
-	@ConfigItem(keyName = "cmShamans", name = "Shamans", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 3)
+	@ConfigItem(keyName = "cmShamans", name = "Shamans", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 5)
 	default String cmShamans() { return "1:03"; }
 
-	@ConfigItem(keyName = "cmVanguards", name = "Vanguards", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 4)
+	@ConfigItem(keyName = "cmVanguards", name = "Vanguards", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 6)
 	default String cmVanguards() { return "2:12"; }
 
-	@ConfigItem(keyName = "cmThieving", name = "Thieving", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 5)
+	@ConfigItem(keyName = "cmThieving", name = "Thieving", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 7)
 	default String cmThieving() { return "1:15"; }
 
-	@ConfigItem(keyName = "cmVespula", name = "Vespula", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 6)
+	@ConfigItem(keyName = "cmVespula", name = "Vespula", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 8)
 	default String cmVespula() { return "0:57"; }
 
-	@ConfigItem(keyName = "cmTightrope", name = "Tightrope", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 7)
+	@ConfigItem(keyName = "cmTightrope", name = "Tightrope", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 9)
 	default String cmTightrope() { return "0:47"; }
 
-	@ConfigItem(keyName = "cmGuardians", name = "Guardians", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 8)
+	@ConfigItem(keyName = "cmGuardians", name = "Guardians", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 10)
 	default String cmGuardians() { return "1:47"; }
 
-	@ConfigItem(keyName = "cmVasa", name = "Vasa", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 9)
+	@ConfigItem(keyName = "cmVasa", name = "Vasa", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 11)
 	default String cmVasa() { return "1:10"; }
 
-	@ConfigItem(keyName = "cmMystics", name = "Mystics", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 10)
+	@ConfigItem(keyName = "cmMystics", name = "Mystics", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 12)
 	default String cmMystics() { return "1:40"; }
 
-	@ConfigItem(keyName = "cmMuttadiles", name = "Muttadiles", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 11)
+	@ConfigItem(keyName = "cmMuttadiles", name = "Muttadiles", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 13)
 	default String cmMuttadiles() { return "1:25"; }
 
-	@ConfigItem(keyName = "cmOlmMage1", name = "Olm mage hand phase 1", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 12)
-	default String cmOlmMage1() { return "0:56"; }
+	@ConfigItem(keyName = "cmOlmMage", name = "Olm mage hand", description = "MM:SS. Used for every mage hand. The last phase has none. Blank means no target.", section = "cmSolo", position = 14)
+	default String cmOlmMage() { return "0:56"; }
 
-	@ConfigItem(keyName = "cmOlmPhase1", name = "Olm phase 1", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 14)
-	default String cmOlmPhase1() { return "1:53"; }
+	@ConfigItem(keyName = "cmOlmPhase", name = "Olm phase", description = "MM:SS. Used for every Olm phase. Blank means no target.", section = "cmSolo", position = 16)
+	default String cmOlmPhase() { return "1:54"; }
 
-	@ConfigItem(keyName = "cmOlmMage2", name = "Olm mage hand phase 2", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 15)
-	default String cmOlmMage2() { return "0:56"; }
-
-	@ConfigItem(keyName = "cmOlmPhase2", name = "Olm phase 2", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 16)
-	default String cmOlmPhase2() { return "1:53"; }
-
-	@ConfigItem(keyName = "cmOlmPhase3", name = "Olm phase 3", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 17)
-	default String cmOlmPhase3() { return "1:55"; }
-
-	@ConfigItem(keyName = "cmOlmHead", name = "Olm head", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 18)
+	@ConfigItem(keyName = "cmOlmHead", name = "Olm head", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 20)
 	default String cmOlmHead() { return "1:06"; }
 
-	@ConfigItem(keyName = "cmBetweenRooms", name = "Between room time", description = "MM:SS. Blank means no target.", section = "cmTargets", position = 19)
+	@ConfigItem(keyName = "cmBetweenRooms", name = "Between room time", description = "MM:SS. Blank means no target.", section = "cmSolo", position = 21)
 	default String cmBetweenRooms() { return "0:56"; }
 
-	@ConfigItem(keyName = "cmTotalPoints", name = "Total Points", description = "Whole number. Blank means no target.", section = "cmTargets", position = 22)
+	@ConfigItem(keyName = "cmTotalPoints", name = "Total Points", description = "Whole number. Blank means no target.", section = "cmSolo", position = 24)
 	default String cmTotalPoints() { return "63750"; }
 
-	@ConfigItem(keyName = "cmPph", name = "PPH", description = "Whole number. Blank means no target.", section = "cmTargets", position = 23)
+	@ConfigItem(keyName = "cmPph", name = "PPH", description = "Whole number. Blank means no target.", section = "cmSolo", position = 25)
 	default String cmPph() { return "130000"; }
+
+	@ConfigItem(keyName = "cmTeamTotal", name = "Target total", description = "Pre-Olm plus Olm plus between rooms, including strategy adds. Calculated from the boxes below.", section = "cmTeam", position = 1)
+	default String cmTeamTotal() { return TargetTotals.text(this, TargetSheet.CM_TEAM); }
+
+	@ConfigItem(keyName = "cmTeamTekton", name = "Tekton", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 2)
+	default String cmTeamTekton() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamCrabs", name = "Crabs", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 3)
+	default String cmTeamCrabs() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamIceDemon", name = "Ice demon", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 4)
+	default String cmTeamIceDemon() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamShamans", name = "Shamans", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 5)
+	default String cmTeamShamans() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamVanguards", name = "Vanguards", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 6)
+	default String cmTeamVanguards() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamThieving", name = "Thieving", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 7)
+	default String cmTeamThieving() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamVespula", name = "Vespula", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 8)
+	default String cmTeamVespula() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamTightrope", name = "Tightrope", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 9)
+	default String cmTeamTightrope() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamGuardians", name = "Guardians", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 10)
+	default String cmTeamGuardians() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamVasa", name = "Vasa", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 11)
+	default String cmTeamVasa() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamMystics", name = "Mystics", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 12)
+	default String cmTeamMystics() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamMuttadiles", name = "Muttadiles", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 13)
+	default String cmTeamMuttadiles() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamOlmMage", name = "Olm mage hand", description = "MM:SS. Used for every mage hand. The last phase has none. Blank means no target.", section = "cmTeam", position = 14)
+	default String cmTeamOlmMage() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamOlmPhase", name = "Olm phase", description = "MM:SS. Used for every Olm phase. Blank means no target.", section = "cmTeam", position = 16)
+	default String cmTeamOlmPhase() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamOlmHead", name = "Olm head", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 20)
+	default String cmTeamOlmHead() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamBetweenRooms", name = "Between room time", description = "MM:SS. Blank means no target.", section = "cmTeam", position = 21)
+	default String cmTeamBetweenRooms() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamTotalPoints", name = "Total Points", description = "Whole number. Blank means no target.", section = "cmTeam", position = 24)
+	default String cmTeamTotalPoints() { return ""; }
+
+	@ConfigItem(keyName = "cmTeamPph", name = "PPH", description = "Whole number. Blank means no target.", section = "cmTeam", position = 25)
+	default String cmTeamPph() { return ""; }
 }

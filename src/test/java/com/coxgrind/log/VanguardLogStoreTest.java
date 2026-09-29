@@ -45,6 +45,20 @@ public class VanguardLogStoreTest
 		Assert.assertEquals(1, store.load("acct-1").size());
 	}
 
+	@Test
+	public void saveLaterFlushesOntoTheSameFile() throws Exception
+	{
+		Path root = Files.createTempDirectory("coxgrind-vanguards-later");
+		VanguardLogStore store = new VanguardLogStore(root);
+		store.saveLater("acct-1", sample("room-1"));
+		store.removeLater("acct-1", "missing");
+		store.flush();
+
+		Assert.assertEquals(1, store.load("acct-1").size());
+		Assert.assertEquals("room-1", store.load("acct-1").get(0).getId());
+		Assert.assertTrue(Files.exists(root.resolve("vanguards-acct-1.json")));
+	}
+
 	private static VanguardSample sample(String id)
 	{
 		VanguardSample sample = new VanguardSample();

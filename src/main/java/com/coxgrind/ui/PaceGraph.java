@@ -73,11 +73,24 @@ public class PaceGraph extends JPanel
 
 	public void setEmptyText(String text)
 	{
-		emptyText = text == null || text.isEmpty() ? emptyText : text;
+		String next = text == null || text.isEmpty() ? emptyText : text;
+		if (next.equals(emptyText))
+		{
+			return;
+		}
+		emptyText = next;
+		if (points.isEmpty())
+		{
+			repaint();
+		}
 	}
 
 	public void setPoints(List<RaidReportFormatter.PacePoint> next)
 	{
+		if (samePoints(points, next))
+		{
+			return;
+		}
 		if (next == null || next.isEmpty())
 		{
 			points = Collections.emptyList();
@@ -87,8 +100,32 @@ public class PaceGraph extends JPanel
 			points = new ArrayList<>(next);
 		}
 		pointX = new int[points.size()];
-		revalidate();
 		repaint();
+	}
+
+	private static boolean samePoints(List<RaidReportFormatter.PacePoint> current, List<RaidReportFormatter.PacePoint> next)
+	{
+		boolean empty = next == null || next.isEmpty();
+		if (empty)
+		{
+			return current.isEmpty();
+		}
+		if (current.size() != next.size())
+		{
+			return false;
+		}
+		for (int i = 0; i < current.size(); i++)
+		{
+			RaidReportFormatter.PacePoint left = current.get(i);
+			RaidReportFormatter.PacePoint right = next.get(i);
+			if (left.getAheadSeconds() != right.getAheadSeconds()
+				|| left.isFlat() != right.isFlat()
+				|| !left.getLabel().equals(right.getLabel()))
+			{
+				return false;
+			}
+		}
+		return true;
 	}
 
 	@Override

@@ -88,4 +88,22 @@ public class TargetStyleTest
 		Assert.assertEquals(Integer.valueOf(69), out.get("Shamans"));
 		Assert.assertEquals(Integer.valueOf(47), out.get("Tightrope"));
 	}
+
+	@Test
+	public void sippingPoolsAndBankingAddToBetweenRooms()
+	{
+		TargetStyle style = new TargetStyle();
+		Map<String, Integer> sheet = new LinkedHashMap<>();
+		sheet.put("Between room time", 56);
+		Map<String, Integer> plain = style.apply(sheet);
+		Assert.assertEquals(Integer.valueOf(56), plain.get("Between room time"));
+		Assert.assertEquals("", style.note());
+
+		style.setSippingPools(true);
+		style.setBankAfterRope(true);
+		Map<String, Integer> out = style.apply(sheet);
+		Assert.assertEquals(Integer.valueOf(73), out.get("Between room time"));
+		Assert.assertTrue(style.note().contains("sipping pools"));
+		Assert.assertTrue(style.note().contains("banking after rope"));
+	}
 }

@@ -37,20 +37,23 @@ public final class RaidReportFormatter
 	private static final int CELL_W = VALUE_W + 1 + DIFF_W;
 
 	private static final Map<String, Integer> MIN_SECONDS = mapOf(
-		"Tekton", 30,
-		"Crabs", 45,
-		"Ice demon", 90,
-		"Shamans", 27,
-		"Vanguards", 60,
-		"Thieving", 45,
-		"Vespula", 15,
-		"Tightrope", 25,
-		"Guardians", 35,
-		"Vasa", 30,
-		"Mystics", 30,
-		"Muttadiles", 45,
-		"Between room time", 20
+		"Tekton", 20,
+		"Crabs", 35,
+		"Ice demon", 80,
+		"Shamans", 17,
+		"Vanguards", 50,
+		"Thieving", 35,
+		"Vespula", 5,
+		"Tightrope", 15,
+		"Guardians", 25,
+		"Vasa", 20,
+		"Mystics", 20,
+		"Muttadiles", 35,
+		"Between room time", 10
 	);
+
+	/** Splits under this are dropped from the averages. */
+	static final int MIN_SPLIT_SECONDS = 10;
 
 	/** Ice demon at or under 3:50 is a normal kill. Over 3:50 is milking. */
 	static final int ICE_NORMAL_MAX = 230;
@@ -116,9 +119,9 @@ public final class RaidReportFormatter
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
 		int window = settings.getLastN();
 		boolean milk = includeIceMilking(settings);
-		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
+		List<CoxRaidRecord> raids = select(allRaids, mode, size);
 		List<CoxRaidRecord> account = allRaids == null ? new ArrayList<CoxRaidRecord>() : allRaids;
-		Map<String, Integer> targets = settings.comparisonSheet(mode);
+		Map<String, Integer> targets = TargetStyle.expandFor(settings.comparisonSheet(mode, size), raids);
 		boolean compare = !targets.isEmpty();
 		StringBuilder out = new StringBuilder();
 		out.append(heading(mode, size, raids.size())).append('\n');
@@ -206,7 +209,6 @@ public final class RaidReportFormatter
 			if (settings.isPurpleSummary())
 			{
 				appendLoggedDeaths(out, account);
-				appendDeath(out, account, settings);
 			}
 			appendAccount(out, account);
 		}
@@ -238,28 +240,50 @@ public final class RaidReportFormatter
 	{
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
 		boolean milk = includeIceMilking(settings);
-		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
+		List<CoxRaidRecord> raids = select(allRaids, mode, size);
 		if (live == null)
 		{
 			return recentPace(raids, milk);
+		}
+		return livePace(paceStats(raids, milk), live, openSeconds, inProgress);
+	}
+
+	/**
+	 * Averages and the personal best for the filtered saved raids.
+	 * A live raid applies these numbers without walking the log again.
+	 */
+	public static PaceStats paceStats(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
+	{
+		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
+		return paceStats(select(allRaids, mode, size), includeIceMilking(settings));
+	}
+
+	/**
+	 * The live raid against stored averages. {@code inProgress} is false once Olm is dead.
+	 * The saved raids used to build {@code stats} stay out of this raid.
+	 */
+	public static PaceComparison livePace(PaceStats stats, CoxRaidRecord live, int openSeconds, boolean inProgress)
+	{
+		PaceStats history = stats == null ? paceStats(Collections.<CoxRaidRecord>emptyList(), false) : stats;
+		if (live == null)
+		{
+			return new PaceComparison("Waiting for the first room.\n", new ArrayList<PacePoint>());
 		}
 		StringBuilder out = new StringBuilder();
 		List<TimeRow> rows = new ArrayList<>();
 		if (inProgress)
 		{
-			if (!appendInProgress(out, raids, live, openSeconds, milk, rows))
+			if (!appendInProgress(out, history, live, openSeconds, rows))
 			{
 				out.append("Waiting for the first room.\n");
 			}
 		}
 		else
 		{
-			List<CoxRaidRecord> combined = new ArrayList<>(raids);
-			combined.add(live);
-			appendRecentCompare(out, combined, null, false, milk, rows);
+			appendFinishedLive(out, history, live, rows);
 		}
 		boolean finished = !inProgress && live.getTotalSeconds() > 0;
-		return new PaceComparison(out.toString(), paceLine(raids, live, finished, milk), rows, live.getKc(), live.isChallengeMode(), inProgress);
+		return new PaceComparison(out.toString(), paceLine(history, live, finished), rows, live.getKc(), live.isChallengeMode(), inProgress);
 	}
 
 	public static String recentVersusTarget(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options)
@@ -288,48 +312,173 @@ public final class RaidReportFormatter
 	{
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
 		boolean milk = includeIceMilking(settings);
-		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
-		if (raids.isEmpty() && live == null)
+		if (live != null)
+		{
+			return liveTarget(settings, mode, size, milk, live, openSeconds, inProgress);
+		}
+		List<CoxRaidRecord> raids = select(allRaids, mode, size);
+		if (raids.isEmpty())
 		{
 			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
 		}
-		Map<String, Integer> targets = settings.comparisonSheet(mode);
+		Map<String, Integer> targets = settings.comparisonSheet(mode, size);
 		if (targets.isEmpty())
 		{
-			if (mode == RaidModeFilter.ALL)
-			{
-				return new PaceComparison("Pick Regular, Regular full, or CM to compare with your targets.\n", new ArrayList<PacePoint>());
-			}
-			return new PaceComparison("Set targets in the CoXGrind plugin settings.\n", new ArrayList<PacePoint>());
+			return missingSheet(mode, size);
 		}
+		CoxRaidRecord subject = raids.get(raids.size() - 1);
+		targets = TargetStyle.expandFor(targets, java.util.Collections.singletonList(subject));
 		StringBuilder out = new StringBuilder();
 		List<TimeRow> rows = new ArrayList<>();
-		CoxRaidRecord subject;
-		boolean finished;
-		if (live != null && inProgress)
-		{
-			appendLiveTargets(out, live, openSeconds, targets, rows);
-			subject = live;
-			finished = false;
-		}
-		else if (live != null)
-		{
-			List<CoxRaidRecord> combined = new ArrayList<>(raids);
-			combined.add(live);
-			appendRecentCompare(out, combined, targets, true, milk, rows);
-			subject = live;
-			finished = live.getTotalSeconds() > 0;
-		}
-		else
-		{
-			appendRecentCompare(out, raids, targets, true, milk, rows);
-			subject = raids.get(raids.size() - 1);
-			finished = subject.getTotalSeconds() > 0;
-		}
-		String note = missingTargets(targets, subject, mode);
+		appendRecentCompare(out, raids, targets, true, milk, rows);
+		boolean finished = subject.getTotalSeconds() > 0;
+		String note = missingTargets(targets, subject, mode, size);
 		PaceComparison view = new PaceComparison(out.toString(), targetPaceLine(targets, subject, finished, milk), rows, subject.getKc(), subject.isChallengeMode(), inProgress, "", false, true);
 		view.setNote(note);
 		return view;
+	}
+
+	/** A live raid against the target sheet. The saved log is not scanned. */
+	private static PaceComparison liveTarget(ReportOptions settings, RaidModeFilter mode, RaidSizeFilter size, boolean milk, CoxRaidRecord live, int openSeconds, boolean inProgress)
+	{
+		Map<String, Integer> targets = settings.comparisonSheet(mode, size);
+		if (targets.isEmpty())
+		{
+			return missingSheet(mode, size);
+		}
+		targets = TargetStyle.expandFor(targets, java.util.Collections.singletonList(live));
+		StringBuilder out = new StringBuilder();
+		List<TimeRow> rows = new ArrayList<>();
+		boolean finished;
+		if (inProgress)
+		{
+			appendLiveTargets(out, live, openSeconds, targets, rows);
+			finished = false;
+		}
+		else
+		{
+			appendRecentCompare(out, Collections.singletonList(live), targets, true, milk, rows);
+			finished = live.getTotalSeconds() > 0;
+		}
+		String note = missingTargets(targets, live, mode, size);
+		PaceComparison view = new PaceComparison(out.toString(), targetPaceLine(targets, live, finished, milk), rows, live.getKc(), live.isChallengeMode(), inProgress, "", false, true);
+		view.setNote(note);
+		return view;
+	}
+
+	/**
+	 * Average of the last {@code lastN} filtered raids against the target sheet.
+	 * Rows match the Target tab. A room with no valid time in that window is left out.
+	 * The pace line uses those averages the same way one raid uses its splits.
+	 */
+	public static PaceComparison lastAverageTargetView(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions options, int lastN)
+	{
+		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
+		int window = lastN < 1 ? 1 : Math.min(lastN, 100);
+		boolean milk = includeIceMilking(settings);
+		List<CoxRaidRecord> raids = select(allRaids, mode, size);
+		if (raids.isEmpty())
+		{
+			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
+		}
+		Map<String, Integer> targets = settings.comparisonSheet(mode, size);
+		if (targets.isEmpty())
+		{
+			return missingSheet(mode, size);
+		}
+		int from = Math.max(0, raids.size() - window);
+		targets = TargetStyle.expandFor(targets, raids.subList(from, raids.size()));
+		StringBuilder out = new StringBuilder();
+		List<TimeRow> drawn = new ArrayList<>();
+		List<String> rows = rowsFor(raids);
+		Map<String, Column> columns = buildColumns(raids, rows, milk);
+		CoxRaidRecord average = new CoxRaidRecord();
+		boolean any = false;
+		for (int i = 0; i < rows.size(); i++)
+		{
+			String row = rows.get(i);
+			Column column = columns.get(row);
+			if (column == null)
+			{
+				continue;
+			}
+			Double last = column.lastAverage(window);
+			if (last == null || (RoomNames.isPrepRoom(row) && column.count() == 0))
+			{
+				continue;
+			}
+			any = true;
+			boolean points = "Total Points".equals(row) || "PPH".equals(row);
+			int rounded = (int) Math.round(last);
+			Integer target = targets.get(row);
+			Double benchmark = target != null && target > 0 ? target.doubleValue() : null;
+			TimeRow drawnRow = timeRow(row, rounded, benchmark, points);
+			out.append(left(drawnRow.getLabel(), 15))
+				.append(' ')
+				.append(right(drawnRow.getValue(), 6))
+				.append(' ')
+				.append(coloredDiff(drawnRow))
+				.append('\n');
+			drawn.add(drawnRow);
+			appendTimeBreak(out, row);
+			if ("Raid Completed".equals(row))
+			{
+				average.setTotalSeconds(rounded);
+			}
+			else if (!points && !"Pre-Olm".equals(row) && !"Between room time".equals(row))
+			{
+				average.putSplit(row, rounded);
+			}
+		}
+		if (!any)
+		{
+			return new PaceComparison("No times in the last " + window + " raids.\n", new ArrayList<PacePoint>());
+		}
+		boolean finished = average.getTotalSeconds() > 0;
+		String note = missingTargets(targets, average, mode, size);
+		PaceComparison view = new PaceComparison(out.toString(), targetPaceLine(targets, average, finished, milk), drawn, 0, false, false, "", false, true);
+		view.setNote(note);
+		return view;
+	}
+
+	private static PaceComparison missingSheet(RaidModeFilter mode, RaidSizeFilter size)
+	{
+		if (mode == RaidModeFilter.ALL)
+		{
+			return new PaceComparison("Pick Regular, Regular full, or CM to compare with your targets.\n", new ArrayList<PacePoint>());
+		}
+		if (size == RaidSizeFilter.ALL)
+		{
+			return new PaceComparison("Pick Solo or Team to compare with your targets.\n", new ArrayList<PacePoint>());
+		}
+		return new PaceComparison("Set targets in the Cox Grind plugin settings.\n", new ArrayList<PacePoint>());
+	}
+
+	private static PaceStats paceStats(List<CoxRaidRecord> raids, boolean milk)
+	{
+		Map<String, long[]> sums = new LinkedHashMap<>();
+		if (raids == null || raids.isEmpty())
+		{
+			return new PaceStats(sums, null, milk);
+		}
+		List<String> rows = rowsFor(raids);
+		Map<String, Column> columns = buildColumns(raids, rows, milk);
+		Integer personalBest = null;
+		for (Map.Entry<String, Column> entry : columns.entrySet())
+		{
+			Column column = entry.getValue();
+			int count = column.count();
+			if (count == 0)
+			{
+				continue;
+			}
+			sums.put(entry.getKey(), new long[] {column.sum(), count});
+			if ("Raid Completed".equals(entry.getKey()))
+			{
+				personalBest = column.best(false);
+			}
+		}
+		return new PaceStats(sums, personalBest, milk);
 	}
 
 	/**
@@ -356,7 +505,7 @@ public final class RaidReportFormatter
 	{
 		ReportOptions settings = options == null ? ReportOptions.defaults(10) : options;
 		boolean milk = includeIceMilking(settings);
-		List<CoxRaidRecord> raids = select(allRaids, mode, size, settings);
+		List<CoxRaidRecord> raids = select(allRaids, mode, size);
 		if (raids.isEmpty())
 		{
 			return new PaceComparison("No completed raids in this filter yet.\n", new ArrayList<PacePoint>());
@@ -535,6 +684,7 @@ public final class RaidReportFormatter
 		}
 		int regularRaids = 0;
 		int cmRaids = 0;
+		int deathRaids = 0;
 		int actual = 0;
 		int scrolls = 0;
 		double expected = 0;
@@ -556,6 +706,10 @@ public final class RaidReportFormatter
 			else
 			{
 				regularRaids++;
+			}
+			if (raid.getDeaths() > 0 || !raid.getDeathList().isEmpty())
+			{
+				deathRaids++;
 			}
 			if (raid.hasPurple())
 			{
@@ -704,6 +858,8 @@ public final class RaidReportFormatter
 			actual,
 			scrolls,
 			totalPoints(raids),
+			pointsLost(raids),
+			deathRaids,
 			averagePoints(raids),
 			expected,
 			current,
@@ -718,17 +874,12 @@ public final class RaidReportFormatter
 		);
 	}
 
-	private static List<CoxRaidRecord> select(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size, ReportOptions settings)
+	private static List<CoxRaidRecord> select(List<CoxRaidRecord> allRaids, RaidModeFilter mode, RaidSizeFilter size)
 	{
-		List<CoxRaidRecord> raids = RaidFilter.apply(allRaids, mode, size);
-		if (settings.getReportRaids() > 0 && raids.size() > settings.getReportRaids())
-		{
-			raids = new ArrayList<>(raids.subList(raids.size() - settings.getReportRaids(), raids.size()));
-		}
-		return raids;
+		return RaidFilter.apply(allRaids, mode, size);
 	}
 
-	private static boolean appendInProgress(StringBuilder out, List<CoxRaidRecord> history, CoxRaidRecord live, int openSeconds, boolean milk, List<TimeRow> rows)
+	private static boolean appendInProgress(StringBuilder out, PaceStats history, CoxRaidRecord live, int openSeconds, List<TimeRow> rows)
 	{
 		boolean any = false;
 		boolean sawPrep = false;
@@ -752,7 +903,7 @@ public final class RaidReportFormatter
 					appendTimeBreak(out, "Pre-Olm");
 					sawPrep = false;
 				}
-				appendTimeLine(out, split.getRoom(), split.getSeconds(), averageOf(history, split.getRoom(), milk), false, rows);
+				appendTimeLine(out, split.getRoom(), split.getSeconds(), history.average(split.getRoom()), false, rows);
 				if (RoomNames.isPrepRoom(split.getRoom()))
 				{
 					sawPrep = true;
@@ -773,23 +924,6 @@ public final class RaidReportFormatter
 			}
 		}
 		return any;
-	}
-
-	private static Double averageOf(List<CoxRaidRecord> history, String row, boolean milk)
-	{
-		Column column = new Column();
-		if (history != null)
-		{
-			for (int i = 0; i < history.size(); i++)
-			{
-				column.add(valueFor(history.get(i), row, milk));
-			}
-		}
-		if (column.count() == 0)
-		{
-			return null;
-		}
-		return column.average();
 	}
 
 	private static void appendTimeLine(StringBuilder out, String room, int seconds, Double average, boolean points, List<TimeRow> rows)
@@ -841,19 +975,41 @@ public final class RaidReportFormatter
 	 * Mage hand is skipped because that time is already inside the phase. Phase gains are replaced when Olm ends.
 	 * The last point of a finished raid is the PB minus the actual finish.
 	 */
+	private static void appendFinishedLive(StringBuilder out, PaceStats history, CoxRaidRecord live, List<TimeRow> rows)
+	{
+		List<String> order = rowsFor(Collections.singletonList(live));
+		for (int r = 0; r < order.size(); r++)
+		{
+			String row = order.get(r);
+			Integer value = valueFor(live, row, history.milk);
+			if (value == null)
+			{
+				continue;
+			}
+			boolean points = "Total Points".equals(row) || "PPH".equals(row);
+			appendTimeLine(out, row, value, history.averageWith(row, value), points, rows);
+			appendTimeBreak(out, row);
+		}
+	}
+
 	private static List<PacePoint> paceLine(List<CoxRaidRecord> comparison, CoxRaidRecord subject, boolean finished, boolean milk)
 	{
+		return paceLine(paceStats(comparison, milk), subject, finished);
+	}
+
+	private static List<PacePoint> paceLine(PaceStats comparison, CoxRaidRecord subject, boolean finished)
+	{
 		List<PacePoint> points = new ArrayList<>();
-		if (comparison == null || comparison.isEmpty() || subject == null)
+		if (comparison == null || comparison.personalBest == null || subject == null)
 		{
 			return points;
 		}
-		Integer personalBest = bestTime(comparison, "Raid Completed", milk);
-		Double avgTotal = averageOf(comparison, "Raid Completed", milk);
-		if (personalBest == null || avgTotal == null)
+		Double avgTotal = comparison.average("Raid Completed");
+		if (avgTotal == null)
 		{
 			return points;
 		}
+		int personalBest = comparison.personalBest;
 		int averageTotal = (int) Math.round(avgTotal);
 		int roomBank = 0;
 		int phaseBank = 0;
@@ -873,7 +1029,7 @@ public final class RaidReportFormatter
 			{
 				continue;
 			}
-			Double average = averageOf(comparison, room, milk);
+			Double average = comparison.average(room);
 			if (average == null)
 			{
 				continue;
@@ -946,13 +1102,14 @@ public final class RaidReportFormatter
 		}
 	}
 
-	private static String missingTargets(Map<String, Integer> targets, CoxRaidRecord subject, RaidModeFilter mode)
+	private static String missingTargets(Map<String, Integer> targets, CoxRaidRecord subject, RaidModeFilter mode, RaidSizeFilter size)
 	{
 		if (subject == null || targets == null)
 		{
 			return "";
 		}
-		String sheet = mode == RaidModeFilter.CM ? "CM targets" : "Regular targets";
+		com.coxgrind.model.TargetSheet which = com.coxgrind.model.TargetSheet.of(mode, size);
+		String sheet = which == null ? "Targets" : which.getLabel();
 		List<String> missing = new ArrayList<>();
 		List<RoomSplit> splits = subject.getSplits();
 		for (int i = 0; i < splits.size(); i++)
@@ -985,7 +1142,7 @@ public final class RaidReportFormatter
 		{
 			return "";
 		}
-		return "No target for " + join(missing) + ". RuneLite wrench, CoXGrind, " + sheet + ".";
+		return "No target for " + join(missing) + ". RuneLite wrench, Cox Grind, " + sheet + ".";
 	}
 
 	private static String join(List<String> names)
@@ -1229,6 +1386,23 @@ public final class RaidReportFormatter
 		if (size == RaidSizeFilter.SOLO)
 		{
 			return "solo raids";
+		}
+		if (size != null && size.getParty() >= 2)
+		{
+			String people = size.getParty() + "-man ";
+			if (mode == RaidModeFilter.CM)
+			{
+				return people + "CM raids";
+			}
+			if (mode == RaidModeFilter.REGULAR_FULL)
+			{
+				return people + "regular full raids";
+			}
+			if (mode == RaidModeFilter.REGULAR)
+			{
+				return people + "raids";
+			}
+			return people + "raids";
 		}
 		if (size == RaidSizeFilter.TEAM && mode == RaidModeFilter.CM)
 		{
@@ -1745,100 +1919,6 @@ public final class RaidReportFormatter
 		out.append('\n');
 	}
 
-	private static void appendDeath(StringBuilder out, List<CoxRaidRecord> raids, ReportOptions settings)
-	{
-		int total = 0;
-		int deaths = 0;
-		int nFullRegular = 0;
-		int deathsFullRegular = 0;
-		int nNormalRegular = 0;
-		int deathsNormalRegular = 0;
-		int nCmSolo = 0;
-		int deathsCmSolo = 0;
-		int nCmTeam = 0;
-		int deathsCmTeam = 0;
-		for (int i = 0; i < raids.size(); i++)
-		{
-			CoxRaidRecord raid = raids.get(i);
-			if (raid.getPersonalPoints() <= 0 || raid.getTeamSize() < 1)
-			{
-				continue;
-			}
-			if (raid.isChallengeMode())
-			{
-				if (raid.getTeamSize() == 1)
-				{
-					nCmSolo++;
-					total++;
-					if (raid.getPersonalPoints() < settings.getDeathCmSolo())
-					{
-						deathsCmSolo++;
-						deaths++;
-					}
-				}
-				else
-				{
-					nCmTeam++;
-					total++;
-					if (raid.getPersonalPoints() < settings.getDeathCmTeam())
-					{
-						deathsCmTeam++;
-						deaths++;
-					}
-				}
-				continue;
-			}
-			if (raid.getTeamSize() != 1)
-			{
-				continue;
-			}
-			if (raid.isFullLayout())
-			{
-				nFullRegular++;
-				total++;
-				if (raid.getPersonalPoints() < settings.getDeathFullRegular())
-				{
-					deathsFullRegular++;
-					deaths++;
-				}
-			}
-			else
-			{
-				nNormalRegular++;
-				total++;
-				if (raid.getPersonalPoints() < settings.getDeathRegular())
-				{
-					deathsNormalRegular++;
-					deaths++;
-				}
-			}
-		}
-		if (total <= 0)
-		{
-			return;
-		}
-		out.append("Death estimate (from pts)\n");
-		out.append(repeat('-', 40)).append('\n');
-		line(out, "Raids with death", deathLine(deaths, total));
-		if (nFullRegular > 0)
-		{
-			line(out, "  Full regular", deathLine(deathsFullRegular, nFullRegular));
-		}
-		if (nNormalRegular > 0)
-		{
-			line(out, "  Regular", deathLine(deathsNormalRegular, nNormalRegular));
-		}
-		if (nCmSolo > 0)
-		{
-			line(out, "  CM solo", deathLine(deathsCmSolo, nCmSolo));
-		}
-		if (nCmTeam > 0)
-		{
-			line(out, "  CM team", deathLine(deathsCmTeam, nCmTeam));
-		}
-		out.append('\n');
-	}
-
 	private static String deathLine(int deaths, int total)
 	{
 		double pct = total > 0 ? 100.0 * deaths / total : 0;
@@ -2063,9 +2143,9 @@ public final class RaidReportFormatter
 		{
 			return null;
 		}
-		if (seconds < 20)
+		if (seconds < MIN_SPLIT_SECONDS)
 		{
-			return "<20s";
+			return "<10s";
 		}
 		Integer min = MIN_SECONDS.get(room);
 		if (min != null && seconds < min)
@@ -2237,7 +2317,7 @@ public final class RaidReportFormatter
 
 	static boolean validTime(String room, int seconds, boolean includeIceMilking)
 	{
-		if (seconds < 20)
+		if (seconds < MIN_SPLIT_SECONDS)
 		{
 			return false;
 		}
@@ -2399,6 +2479,16 @@ public final class RaidReportFormatter
 		return count == 0 ? 0 : (double) sum / count;
 	}
 
+	private static long pointsLost(List<CoxRaidRecord> raids)
+	{
+		long sum = 0;
+		for (int i = 0; i < raids.size(); i++)
+		{
+			sum += raids.get(i).pointsLost();
+		}
+		return sum;
+	}
+
 	private static long totalPoints(List<CoxRaidRecord> raids)
 	{
 		long sum = 0;
@@ -2522,6 +2612,19 @@ public final class RaidReportFormatter
 				}
 			}
 			return count;
+		}
+
+		private long sum()
+		{
+			long sum = 0;
+			for (int i = 0; i < values.size(); i++)
+			{
+				if (values.get(i) != null)
+				{
+					sum += values.get(i);
+				}
+			}
+			return sum;
 		}
 
 		private double average()
@@ -2711,6 +2814,52 @@ public final class RaidReportFormatter
 		public String getAverage()
 		{
 			return average;
+		}
+	}
+
+	/**
+	 * Stored room averages and the personal best. Built once for a filter, then reused for each live tick.
+	 */
+	public static final class PaceStats
+	{
+		private final Map<String, long[]> sums;
+		private final Integer personalBest;
+		private final boolean milk;
+
+		private PaceStats(Map<String, long[]> sums, Integer personalBest, boolean milk)
+		{
+			this.sums = sums == null ? new LinkedHashMap<String, long[]>() : sums;
+			this.personalBest = personalBest;
+			this.milk = milk;
+		}
+
+		private boolean milk()
+		{
+			return milk;
+		}
+
+		private Double average(String room)
+		{
+			long[] cell = sums.get(room);
+			if (cell == null || cell[1] == 0)
+			{
+				return null;
+			}
+			return (double) cell[0] / (double) cell[1];
+		}
+
+		/** History plus one extra value, matching a column that ends with the live raid. */
+		private Double averageWith(String room, int extra)
+		{
+			long[] cell = sums.get(room);
+			long sum = extra;
+			long count = 1;
+			if (cell != null)
+			{
+				sum += cell[0];
+				count += cell[1];
+			}
+			return (double) sum / (double) count;
 		}
 	}
 

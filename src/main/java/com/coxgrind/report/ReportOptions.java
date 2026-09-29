@@ -2,6 +2,8 @@ package com.coxgrind.report;
 
 import com.coxgrind.model.ComparisonTargets;
 import com.coxgrind.model.RaidModeFilter;
+import com.coxgrind.model.RaidSizeFilter;
+import com.coxgrind.model.TargetSheet;
 import java.util.Collections;
 import java.util.Map;
 
@@ -11,12 +13,7 @@ import java.util.Map;
 public final class ReportOptions
 {
 	private int lastN = 10;
-	private int reportRaids;
 	private ComparisonTargets targets = new ComparisonTargets();
-	private int deathFullRegular = 48000;
-	private int deathRegular = 29000;
-	private int deathCmSolo = 60000;
-	private int deathCmTeam = 40000;
 	private boolean purpleSummary = true;
 	private boolean trackedPurples = true;
 	private boolean roomEfficiency;
@@ -36,16 +33,6 @@ public final class ReportOptions
 		return lastN < 1 ? 10 : Math.min(lastN, 100);
 	}
 
-	public int getReportRaids()
-	{
-		return reportRaids;
-	}
-
-	public void setReportRaids(int reportRaids)
-	{
-		this.reportRaids = reportRaids < 0 ? 0 : Math.min(reportRaids, 10000);
-	}
-
 	public ComparisonTargets getTargets()
 	{
 		return targets == null ? new ComparisonTargets() : targets;
@@ -54,46 +41,6 @@ public final class ReportOptions
 	public void setTargets(ComparisonTargets targets)
 	{
 		this.targets = targets == null ? new ComparisonTargets() : targets;
-	}
-
-	public int getDeathFullRegular()
-	{
-		return deathFullRegular;
-	}
-
-	public void setDeathFullRegular(int deathFullRegular)
-	{
-		this.deathFullRegular = deathFullRegular;
-	}
-
-	public int getDeathRegular()
-	{
-		return deathRegular;
-	}
-
-	public void setDeathRegular(int deathRegular)
-	{
-		this.deathRegular = deathRegular;
-	}
-
-	public int getDeathCmSolo()
-	{
-		return deathCmSolo;
-	}
-
-	public void setDeathCmSolo(int deathCmSolo)
-	{
-		this.deathCmSolo = deathCmSolo;
-	}
-
-	public int getDeathCmTeam()
-	{
-		return deathCmTeam;
-	}
-
-	public void setDeathCmTeam(int deathCmTeam)
-	{
-		this.deathCmTeam = deathCmTeam;
 	}
 
 	public boolean isPurpleSummary()
@@ -161,24 +108,16 @@ public final class ReportOptions
 	}
 
 	/**
-	 * Regular and regular-full share the regular sheet. All has no comparison column.
-	 * Method checkboxes shorten that sheet. The saved targets are left as typed.
+	 * Regular and regular-full share the sheet for that team size. All, for mode or size, has no comparison column.
+	 * Method checkboxes adjust that sheet. The saved targets are left as typed.
 	 */
-	public Map<String, Integer> comparisonSheet(RaidModeFilter mode)
+	public Map<String, Integer> comparisonSheet(RaidModeFilter mode, RaidSizeFilter size)
 	{
-		Map<String, Integer> sheet;
-		if (mode == RaidModeFilter.CM)
-		{
-			sheet = getTargets().sheet(true);
-		}
-		else if (mode == RaidModeFilter.REGULAR || mode == RaidModeFilter.REGULAR_FULL)
-		{
-			sheet = getTargets().sheet(false);
-		}
-		else
+		TargetSheet which = TargetSheet.of(mode, size);
+		if (which == null)
 		{
 			return Collections.emptyMap();
 		}
-		return getTargetStyle().apply(sheet);
+		return getTargetStyle().apply(getTargets().sheet(which));
 	}
 }

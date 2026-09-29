@@ -44,14 +44,6 @@ public final class RaidFilter
 		{
 			return false;
 		}
-		if (size == RaidSizeFilter.SOLO && raid.getTeamSize() != 1)
-		{
-			return false;
-		}
-		if (size == RaidSizeFilter.TEAM && raid.getTeamSize() < 2)
-		{
-			return false;
-		}
-		return true;
+		return size == null || size.matches(raid.getTeamSize());
 	}
 }

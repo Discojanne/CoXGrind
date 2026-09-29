@@ -1,12 +1,15 @@
 package com.coxgrind;
 
+import com.coxgrind.log.AccountLog;
 import com.coxgrind.log.RaidLogStore;
 import com.coxgrind.log.VanguardLogStore;
 import com.coxgrind.model.CoxRaidRecord;
+import com.coxgrind.model.TargetSheet;
 import com.coxgrind.model.VanguardSample;
 import com.coxgrind.track.CoxRaidSession;
 import com.coxgrind.track.OlmNpcs;
 import com.coxgrind.track.RaidChat;
+import com.coxgrind.report.TargetSettings;
 import com.coxgrind.track.VanguardNpcs;
 import com.coxgrind.track.VanguardTracker;
 import com.coxgrind.ui.ConfigItemIcons;
@@ -28,6 +31,7 @@ import net.runelite.api.HitsplatID;
 import net.runelite.api.NPC;
 import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.ActorDeath;
+import net.runelite.client.events.ConfigChanged;
 import net.runelite.api.events.ChatMessage;
 import net.runelite.api.events.GameObjectSpawned;
 import net.runelite.api.events.GameStateChanged;
@@ -51,8 +55,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @PluginDescriptor(
-	name = "CoXGrind",
-	description = "Logs Chambers of Xeric raids locally and shows times, points, and purples in a side panel.",
+	name = "Cox Grind",
+	description = "Store and visualize Chambers of Xeric raid data. View live splits, compare them to your average or target times, and see statistics for points, items, and purples.",
 	tags = {"cox", "chambers", "xeric", "raids", "analytics"},
 	enabledByDefault = true
 )
@@ -97,11 +101,23 @@ public class CoxGrindPlugin extends Plugin
 	private static final int SAVE_WAIT_TICKS = 40;
 
 	private boolean inRaid;
-	private boolean sawPlayer;
 	private int saveWaitTicks;
 	private RaidChat.KillCount earlyKillCount;
 	/** The next friends-chat lines are {@code Name - Item} rows for this raid's purples. */
 	private boolean purpleListOpen;
+	/** File key of the account currently logged in. Stays set on the login screen. */
+	private String loggedInKey;
+	/** File key captured when this raid started. Later writes keep using it. */
+	private String raidKey;
+	/** File key captured for the vanguard room open now. */
+	private String vanguardKey;
+	private boolean missingAccountWarned;
+	private boolean resettingTargets;
+	/** Ticks after login to catch an account hash that is not ready on the first tick. */
+	private int accountLookTicks;
+	/** Last live list pushed to the panel. Skips a redraw when nothing on screen changed. */
+	private int publishedGeneration = -1;
+	private int publishedOpen = Integer.MIN_VALUE;
 
 	@Provides
 	CoxGrindConfig provideConfig(ConfigManager configManager)
@@ -114,14 +130,16 @@ public class CoxGrindPlugin extends Plugin
 	{
 		panel = new CoxGrindPanel(store, config, configManager, itemManager);
 		navButton = NavigationButton.builder()
-			.tooltip("CoXGrind")
+			.tooltip("Cox Grind")
 			.icon(icon())
 			.priority(7)
 			.panel(panel)
 			.build();
 		clientToolbar.addNavigation(navButton);
-		configIcons = new ConfigItemIcons(itemManager);
+		TargetSettings.forgetTotals(configManager);
+		configIcons = new ConfigItemIcons(config, this::resetTargetSheet);
 		configIcons.start();
+		accountLookTicks = 20;
 		clientThread.invokeLater(this::refreshAccount);
 	}
 
@@ -130,15 +148,14 @@ public class CoxGrindPlugin extends Plugin
 	{
 		try
 		{
-			// Same flush as the login screen. A zero hash would write account-0.json, so skip it.
-			if (client.getAccountHash() != 0)
-			{
-				saveVanguard(vanguards.finish(false, timerUnits()));
-			}
-			if (session.isComplete() && !session.isSaved() && client.getAccountHash() != 0)
+			// A finished raid that is still unsaved is written, then the file write is allowed to finish.
+			saveVanguard(vanguards.finish(false, timerUnits()));
+			if (session.isComplete() && !session.isSaved())
 			{
 				writeRaid();
 			}
+			vanguardStore.flush();
+			store.flush();
 		}
 		finally
 		{
@@ -153,10 +170,67 @@ public class CoxGrindPlugin extends Plugin
 			}
 			session.reset();
 			inRaid = false;
-			sawPlayer = false;
 			saveWaitTicks = 0;
 			earlyKillCount = null;
 			purpleListOpen = false;
+			loggedInKey = null;
+			raidKey = null;
+			vanguardKey = null;
+			missingAccountWarned = false;
+			accountLookTicks = 0;
+			publishedGeneration = -1;
+			publishedOpen = Integer.MIN_VALUE;
+		}
+	}
+
+	@Subscribe
+	public void onConfigChanged(ConfigChanged event)
+	{
+		if (resettingTargets || event.getGroup() == null || !"coxgrind".equals(event.getGroup()))
+		{
+			return;
+		}
+		if (TargetSettings.isTotalKey(event.getKey()))
+		{
+			return;
+		}
+		resettingTargets = true;
+		try
+		{
+			TargetSettings.forgetTotals(configManager);
+		}
+		finally
+		{
+			resettingTargets = false;
+		}
+		if (panel != null)
+		{
+			panel.reload();
+		}
+		if (configIcons != null)
+		{
+			configIcons.refreshTotals();
+		}
+	}
+
+	private void resetTargetSheet(TargetSheet sheet)
+	{
+		resettingTargets = true;
+		try
+		{
+			TargetSettings.reset(configManager, sheet);
+		}
+		finally
+		{
+			resettingTargets = false;
+		}
+		if (panel != null)
+		{
+			panel.reload();
+		}
+		if (configIcons != null)
+		{
+			configIcons.showSheet(sheet);
 		}
 	}
 
@@ -165,12 +239,13 @@ public class CoxGrindPlugin extends Plugin
 	{
 		if (event.getGameState() == GameState.LOGGED_IN)
 		{
+			accountLookTicks = 20;
 			refreshAccount();
 		}
 		else if (event.getGameState() == GameState.LOGIN_SCREEN)
 		{
-			sawPlayer = false;
 			saveVanguard(vanguards.finish(false, timerUnits()));
+			vanguardKey = null;
 			if (session.isComplete() && !session.isSaved())
 			{
 				writeRaid();
@@ -178,6 +253,7 @@ public class CoxGrindPlugin extends Plugin
 			if (!session.isComplete())
 			{
 				session.reset();
+				raidKey = null;
 				saveWaitTicks = 0;
 				earlyKillCount = null;
 				purpleListOpen = false;
@@ -189,26 +265,40 @@ public class CoxGrindPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick tick)
 	{
-		if (!sawPlayer && client.getGameState() == GameState.LOGGED_IN && client.getLocalPlayer() != null)
+		if (accountLookTicks > 0)
 		{
-			sawPlayer = true;
+			accountLookTicks--;
 			refreshAccount();
 		}
-		if (session.isRunning() && !session.isComplete() && !session.isSaved())
+		if (session.isRunning() && !session.isComplete())
 		{
-			publishLive();
-		}
-		if (watchingVanguards())
-		{
-			for (NPC npc : client.getNpcs())
+			session.notePoints(personalPoints());
+			if (!session.isSaved())
 			{
-				String style = VanguardNpcs.style(npc.getId());
-				if (style != null && npc.getHealthScale() > 0)
+				publishLiveIfNeeded();
+			}
+		}
+		if (config.trackVanguards() && session.isRunning() && !session.isComplete())
+		{
+			if (client.getVarbitValue(CHALLENGE_MODE) != 0)
+			{
+				vanguards.allowChallengeMode();
+			}
+			if (vanguards.isTiming())
+			{
+				vanguards.tick();
+				if (vanguards.needsHealth())
 				{
-					vanguards.seen(style, npc.getHealthRatio(), npc.getHealthScale());
+					for (NPC npc : client.getNpcs())
+					{
+						String style = VanguardNpcs.style(npc.getId());
+						if (style != null && npc.getHealthScale() > 0)
+						{
+							vanguards.seen(style, npc.getHealthRatio(), npc.getHealthScale());
+						}
+					}
 				}
 			}
-			vanguards.tick();
 		}
 		if (!session.isComplete() || session.isSaved() || saveWaitTicks <= 0)
 		{
@@ -217,7 +307,7 @@ public class CoxGrindPlugin extends Plugin
 		session.updateScore(personalPoints(), teamPoints(), partySize());
 		if (!session.isSaved())
 		{
-			publishLive();
+			publishLiveIfNeeded();
 		}
 		saveWaitTicks--;
 		tryWrite(saveWaitTicks <= 0);
@@ -240,6 +330,8 @@ public class CoxGrindPlugin extends Plugin
 		{
 			saveVanguard(vanguards.finish(false, timerUnits()));
 			session.reset();
+			raidKey = null;
+			vanguardKey = null;
 			saveWaitTicks = 0;
 			earlyKillCount = null;
 			purpleListOpen = false;
@@ -270,7 +362,7 @@ public class CoxGrindPlugin extends Plugin
 		if (trackingOlm() && OlmNpcs.isMageHand(npc.getId()))
 		{
 			session.olmPhaseStarted(timerUnits());
-			publishLive();
+			publishLiveIfNeeded();
 		}
 		vanguardSpawned(npc);
 	}
@@ -348,7 +440,7 @@ public class CoxGrindPlugin extends Plugin
 		{
 			return;
 		}
-		publishLive();
+		publishLiveIfNeeded();
 	}
 
 	@Subscribe
@@ -361,7 +453,7 @@ public class CoxGrindPlugin extends Plugin
 		if (event.getGameObject().getId() == OlmNpcs.ENCOUNTER_OBJECT)
 		{
 			session.olmPhaseStarted(timerUnits());
-			publishLive();
+			publishLiveIfNeeded();
 		}
 	}
 
@@ -379,8 +471,10 @@ public class CoxGrindPlugin extends Plugin
 				earlyKillCount = null;
 				saveWaitTicks = 0;
 				purpleListOpen = false;
+				missingAccountWarned = false;
 				session.startRaid();
 				session.setTeamSize(partySize());
+				bindRaidAccount();
 				if (config.trackVanguards())
 				{
 					vanguards.startRaid(Instant.now().truncatedTo(ChronoUnit.SECONDS).toString(), partySize());
@@ -442,7 +536,7 @@ public class CoxGrindPlugin extends Plugin
 
 			if (RaidChat.isPlayerDeath(message))
 			{
-				session.recordDeath();
+				session.recordDeath(personalPoints());
 				vanguards.noteDeaths(session.snapshot().getDeaths());
 			}
 
@@ -512,13 +606,13 @@ public class CoxGrindPlugin extends Plugin
 		}
 		catch (Exception ex)
 		{
-			log.warn("CoXGrind could not read a raid message", ex);
+			log.warn("Cox Grind could not read a raid message", ex);
 		}
 		finally
 		{
 			if (session.isRunning() && !session.isSaved())
 			{
-				publishLive();
+				publishLiveIfNeeded();
 			}
 		}
 	}
@@ -600,34 +694,34 @@ public class CoxGrindPlugin extends Plugin
 
 	private void saveVanguard(VanguardSample sample)
 	{
-		if (sample == null || client.getAccountHash() == 0)
+		if (sample == null || vanguardKey == null)
 		{
 			return;
 		}
 		try
 		{
-			vanguardStore.save(accountHash(), sample);
+			vanguardStore.saveLater(vanguardKey, sample);
 			log.info("Logged CoX vanguards world {} kc {} uptimes {}", sample.getWorld(), sample.getKc(), sample.getUptimes().size());
 		}
 		catch (IOException ex)
 		{
-			log.warn("Could not write the CoXGrind vanguard log", ex);
+			log.warn("Could not write the Cox Grind vanguard log", ex);
 		}
 	}
 
 	private void dropVanguard(String id)
 	{
-		if (id == null || client.getAccountHash() == 0)
+		if (id == null || vanguardKey == null)
 		{
 			return;
 		}
 		try
 		{
-			vanguardStore.remove(accountHash(), id);
+			vanguardStore.removeLater(vanguardKey, id);
 		}
 		catch (IOException ex)
 		{
-			log.warn("Could not update the CoXGrind vanguard log", ex);
+			log.warn("Could not update the Cox Grind vanguard log", ex);
 		}
 	}
 
@@ -656,6 +750,7 @@ public class CoxGrindPlugin extends Plugin
 			return;
 		}
 		CoxRaidRecord record = session.snapshot();
+		record.settleDeathRooms();
 		if (record.getId() == null || record.getId().isEmpty())
 		{
 			record.setId(UUID.randomUUID().toString());
@@ -663,9 +758,18 @@ public class CoxGrindPlugin extends Plugin
 		}
 		record.setPlayerName(null);
 		record.setAccountHash(null);
+		if (raidKey == null)
+		{
+			if (!missingAccountWarned)
+			{
+				missingAccountWarned = true;
+				log.warn("Cox Grind skipped a raid because the account was not logged in");
+			}
+			return;
+		}
 		try
 		{
-			store.save(accountHash(), record);
+			store.saveLater(raidKey, record);
 			session.markSaved(record.getId(), record.getTimestamp());
 			saveWaitTicks = 0;
 			log.info("Logged CoX raid {} ({}s, {} personal points, kc {})", record.getId(), record.getTotalSeconds(), record.getPersonalPoints(), record.getKc());
@@ -676,7 +780,7 @@ public class CoxGrindPlugin extends Plugin
 		}
 		catch (IOException ex)
 		{
-			log.warn("Could not write the CoXGrind log", ex);
+			log.warn("Could not write the Cox Grind log", ex);
 		}
 	}
 
@@ -686,12 +790,17 @@ public class CoxGrindPlugin extends Plugin
 		{
 			return;
 		}
+		if (raidKey == null || (loggedInKey != null && !raidKey.equals(loggedInKey)))
+		{
+			return;
+		}
 		CoxRaidRecord live = session.snapshot();
+		live.settleDeathRooms();
 		live.setPlayerName(null);
 		live.setAccountHash(null);
 		try
 		{
-			store.save(accountHash(), live);
+			store.saveLater(raidKey, live);
 			if (panel != null)
 			{
 				panel.reload();
@@ -699,17 +808,34 @@ public class CoxGrindPlugin extends Plugin
 		}
 		catch (IOException ex)
 		{
-			log.warn("Could not update the CoXGrind log", ex);
+			log.warn("Could not update the Cox Grind log", ex);
 		}
 	}
 
-	private void publishLive()
+	/**
+	 * Push the raid on screen only when the panel is open and the list or the current second changed.
+	 * Chat lines and game ticks that do not move the clock stay off the Swing thread.
+	 */
+	private void publishLiveIfNeeded()
 	{
 		if (panel == null || !session.isRunning() || session.isSaved())
 		{
 			return;
 		}
-		panel.showLive(session.snapshot(), session.openSegmentSeconds(timerUnits()), !session.isComplete());
+		boolean reveal = panel.consumeReveal();
+		if (!reveal && !panel.isShown())
+		{
+			return;
+		}
+		int open = session.openSegmentSeconds(timerUnits());
+		int generation = session.getGeneration();
+		if (!reveal && generation == publishedGeneration && open == publishedOpen)
+		{
+			return;
+		}
+		publishedGeneration = generation;
+		publishedOpen = open;
+		panel.showLive(session.snapshot(), open, !session.isComplete());
 	}
 
 	private void publishRecent()
@@ -722,11 +848,70 @@ public class CoxGrindPlugin extends Plugin
 
 	private void refreshAccount()
 	{
-		if (panel == null || client.getGameState() != GameState.LOGGED_IN)
+		if (client.getGameState() != GameState.LOGGED_IN || client.getLocalPlayer() == null)
 		{
 			return;
 		}
-		panel.setAccount(accountHash());
+		String key = currentAccountKey();
+		if (key == null || key.equals(loggedInKey))
+		{
+			return;
+		}
+		if (loggedInKey != null)
+		{
+			detachPreviousAccount();
+		}
+		loggedInKey = key;
+		if (panel != null)
+		{
+			panel.setAccount(key);
+		}
+	}
+
+	/** Point the open raid at the account and world that just started it. */
+	private void bindRaidAccount()
+	{
+		String key = currentAccountKey();
+		if (key == null)
+		{
+			key = loggedInKey;
+		}
+		raidKey = key;
+		vanguardKey = key;
+		if (key == null)
+		{
+			return;
+		}
+		loggedInKey = key;
+		if (panel != null)
+		{
+			panel.setAccount(key);
+		}
+	}
+
+	/**
+	 * The logged-in account or world kind changed. Finish the previous raid into its own file
+	 * and drop it, so the next account cannot append to that log.
+	 */
+	private void detachPreviousAccount()
+	{
+		if (session.isComplete() && !session.isSaved())
+		{
+			writeRaid();
+		}
+		saveVanguard(vanguards.finish(false, timerUnits()));
+		session.reset();
+		raidKey = null;
+		vanguardKey = null;
+		saveWaitTicks = 0;
+		earlyKillCount = null;
+		purpleListOpen = false;
+		publishRecent();
+	}
+
+	private String currentAccountKey()
+	{
+		return AccountLog.key(client.getAccountHash(), client.getWorldType());
 	}
 
 	private int timerUnits()
@@ -756,11 +941,6 @@ public class CoxGrindPlugin extends Plugin
 			return "";
 		}
 		return Text.removeTags(client.getLocalPlayer().getName()).replace('\u00A0', ' ').trim();
-	}
-
-	private String accountHash()
-	{
-		return Long.toUnsignedString(client.getAccountHash());
 	}
 
 	private static BufferedImage icon()

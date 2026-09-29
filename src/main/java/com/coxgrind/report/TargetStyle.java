@@ -1,7 +1,10 @@
 package com.coxgrind.report;
 
+import com.coxgrind.model.CoxRaidRecord;
+import com.coxgrind.model.RoomSplit;
 import com.coxgrind.track.RoomNames;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -26,6 +29,8 @@ public final class TargetStyle
 	static final int KILL_ROPE_SECONDS = 59;
 	static final int MILK_VESPULA_SECONDS = 18;
 	static final int OVER_THIEVE_SECONDS = 7;
+	static final int SIP_POOLS_SECONDS = 12;
+	static final int BANK_ROPE_SECONDS = 5;
 
 	private boolean useTbow = true;
 	private boolean slayerHelm = true;
@@ -39,6 +44,8 @@ public final class TargetStyle
 	private boolean killRope;
 	private boolean milkVespula;
 	private boolean overThieve;
+	private boolean sippingPools;
+	private boolean bankAfterRope;
 	private int iceMilkSeconds = 70;
 
 	public boolean isUseTbow()
@@ -161,6 +168,26 @@ public final class TargetStyle
 		this.overThieve = overThieve;
 	}
 
+	public boolean isSippingPools()
+	{
+		return sippingPools;
+	}
+
+	public void setSippingPools(boolean sippingPools)
+	{
+		this.sippingPools = sippingPools;
+	}
+
+	public boolean isBankAfterRope()
+	{
+		return bankAfterRope;
+	}
+
+	public void setBankAfterRope(boolean bankAfterRope)
+	{
+		this.bankAfterRope = bankAfterRope;
+	}
+
 	public void setIceMilkSeconds(int seconds)
 	{
 		iceMilkSeconds = clamp(seconds);
@@ -179,7 +206,9 @@ public final class TargetStyle
 			|| (iceMilking && iceMilkSeconds > 0)
 			|| killRope
 			|| milkVespula
-			|| overThieve;
+			|| overThieve
+			|| sippingPools
+			|| bankAfterRope;
 	}
 
 	public String note()
@@ -236,6 +265,14 @@ public final class TargetStyle
 		if (overThieve)
 		{
 			note.append(" over-thieve");
+		}
+		if (sippingPools)
+		{
+			note.append(" sipping pools");
+		}
+		if (bankAfterRope)
+		{
+			note.append(" banking after rope");
 		}
 		note.append('.');
 		return note.toString();
@@ -304,6 +341,14 @@ public final class TargetStyle
 		{
 			shift(out, "Thieving", OVER_THIEVE_SECONDS);
 		}
+		if (sippingPools)
+		{
+			shift(out, "Between room time", SIP_POOLS_SECONDS);
+		}
+		if (bankAfterRope)
+		{
+			shift(out, "Between room time", BANK_ROPE_SECONDS);
+		}
 		derivePreOlm(out);
 		deriveOlm(out);
 		deriveRaid(out);
@@ -334,20 +379,158 @@ public final class TargetStyle
 		}
 	}
 
-	/** Olm is the phase targets plus the head, plus one minute between phases. Mage hand is already inside the phase. */
+	/** One minute of time between phases on a 3-phase fight. Longer fights scale that by the gaps. */
 	private static final int OLM_GAP_SECONDS = 60;
+	private static final int SOLO_PHASES = 3;
+	/** 3 + scale / 8 reaches 15 at a full party. */
+	private static final int MAX_PHASES = 15;
 
+	/**
+	 * Copies one mage-hand time and one phase time onto each phase.
+	 * The last phase has no mage hand. The Olm total uses {@code totalPhases}.
+	 * Row targets are written out to {@code stampPhases} so a later phase still has a time.
+	 */
+	public static Map<String, Integer> expandOlm(Map<String, Integer> sheet, int totalPhases, int stampPhases)
+	{
+		Map<String, Integer> out = new LinkedHashMap<>();
+		if (sheet != null)
+		{
+			out.putAll(sheet);
+		}
+		Integer phase = out.get("Olm phase");
+		if (phase == null || phase <= 0)
+		{
+			return out;
+		}
+		int stamp = stampPhases < 1 ? SOLO_PHASES : Math.min(stampPhases, MAX_PHASES);
+		int total = totalPhases < 1 ? SOLO_PHASES : Math.min(totalPhases, MAX_PHASES);
+		for (int i = 1; i <= stamp; i++)
+		{
+			out.put("Olm phase " + i, phase);
+		}
+		Integer mage = out.get("Olm mage hand");
+		if (mage != null && mage > 0)
+		{
+			for (int i = 1; i < stamp; i++)
+			{
+				out.put("Olm mage hand phase " + i, mage);
+			}
+		}
+		int sum = phase * total;
+		Integer head = out.get("Olm head");
+		if (head != null && head > 0)
+		{
+			sum += head;
+		}
+		sum += gapSeconds(total);
+		out.put("Olm", sum);
+		Integer pre = out.get("Pre-Olm");
+		Integer between = out.get("Between room time");
+		if (pre != null && pre > 0 && between != null && between > 0)
+		{
+			out.put("Raid Completed", pre + sum + between);
+		}
+		return out;
+	}
+
+	/**
+	 * One raid uses its own phase count. A mix of counts keeps the 3-phase Olm total
+	 * and still fills a target for the longest fight in the set.
+	 */
+	public static Map<String, Integer> expandFor(Map<String, Integer> sheet, List<CoxRaidRecord> raids)
+	{
+		int shared = -1;
+		int stamp = SOLO_PHASES;
+		boolean mixed = false;
+		if (raids != null)
+		{
+			for (int i = 0; i < raids.size(); i++)
+			{
+				CoxRaidRecord raid = raids.get(i);
+				if (raid == null)
+				{
+					continue;
+				}
+				int count = phaseCount(raid);
+				if (count > stamp)
+				{
+					stamp = count;
+				}
+				if (shared < 0)
+				{
+					shared = count;
+				}
+				else if (shared != count)
+				{
+					mixed = true;
+				}
+			}
+		}
+		int total = mixed || shared < 0 ? SOLO_PHASES : shared;
+		return expandOlm(sheet, total, stamp);
+	}
+
+	/** Recorded phases, or 3 + team size / 8 when Olm has not started. */
+	public static int phaseCount(CoxRaidRecord raid)
+	{
+		int recorded = 0;
+		if (raid != null)
+		{
+			List<RoomSplit> splits = raid.getSplits();
+			for (int i = 0; i < splits.size(); i++)
+			{
+				RoomSplit split = splits.get(i);
+				if (split == null || split.getRoom() == null || !split.getRoom().startsWith("Olm phase "))
+				{
+					continue;
+				}
+				try
+				{
+					int n = Integer.parseInt(split.getRoom().substring("Olm phase ".length()));
+					if (n > recorded)
+					{
+						recorded = n;
+					}
+				}
+				catch (NumberFormatException ex)
+				{
+					continue;
+				}
+			}
+			int scale = raid.getTeamSize() <= 0 ? 1 : raid.getTeamSize();
+			int expected = SOLO_PHASES + (scale / 8);
+			return Math.min(MAX_PHASES, Math.max(expected, recorded));
+		}
+		return SOLO_PHASES;
+	}
+
+	private static int gapSeconds(int phases)
+	{
+		int count = phases < SOLO_PHASES ? SOLO_PHASES : phases;
+		return OLM_GAP_SECONDS * (count - 1) / 2;
+	}
+
+	/** Olm is the phase target times the phases, plus the head, plus the gaps. Mage hand is already inside the phase. */
 	private static void deriveOlm(Map<String, Integer> sheet)
 	{
 		int sum = 0;
 		boolean any = false;
-		for (int phase = 1; phase <= 8; phase++)
+		Integer each = sheet.get("Olm phase");
+		if (each != null && each > 0)
 		{
-			Integer value = sheet.get("Olm phase " + phase);
-			if (value != null && value > 0)
+			sum += each * SOLO_PHASES;
+			any = true;
+		}
+		else
+		{
+			for (int phase = 1; phase <= 8; phase++)
 			{
-				sum += value;
-				any = true;
+				Integer value = sheet.get("Olm phase " + phase);
+				if (value != null && value > 0)
+				{
+					sum += value;
+					any = true;
+				}
 			}
 		}
 		Integer head = sheet.get("Olm head");
@@ -358,7 +541,7 @@ public final class TargetStyle
 		}
 		if (any)
 		{
-			sheet.put("Olm", sum + OLM_GAP_SECONDS);
+			sheet.put("Olm", sum + gapSeconds(SOLO_PHASES));
 		}
 		else
 		{

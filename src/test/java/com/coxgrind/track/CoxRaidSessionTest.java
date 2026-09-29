@@ -1,6 +1,7 @@
 package com.coxgrind.track;
 
 import com.coxgrind.model.CoxRaidRecord;
+import com.coxgrind.model.RaidDeath;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -94,5 +95,80 @@ public class CoxRaidSessionTest
 		Assert.assertEquals(30, session.openSegmentSeconds(250));
 		session.raidCompleted(300, 1000, 1000, 1);
 		Assert.assertEquals(-1, session.openSegmentSeconds(400));
+	}
+
+	@Test
+	public void deathListRecordsTheDropAndNamesTheNextRoomOnAFixedLayout()
+	{
+		CoxRaidSession session = new CoxRaidSession();
+		session.startRaid();
+		session.notePoints(40000);
+		session.recordDeath(40000);
+		session.notePoints(32000);
+		RaidDeath first = session.snapshot().getDeathList().get(0);
+		Assert.assertEquals("Tekton", first.getRoom());
+		Assert.assertEquals(8000, first.getPointsLost());
+
+		session.completeRoom("Tekton", 100);
+		session.recordDeath(32000);
+		session.raidCompleted(200, 25000, 25000, 1);
+		session.setKillCount(8, true);
+		CoxRaidRecord cm = session.snapshot();
+		cm.settleDeathRooms();
+		Assert.assertEquals(2, cm.getDeaths());
+		Assert.assertEquals("Tekton", cm.getDeathList().get(0).getRoom());
+		Assert.assertEquals(8000, cm.getDeathList().get(0).getPointsLost());
+		Assert.assertEquals("Crabs", cm.getDeathList().get(1).getRoom());
+		Assert.assertEquals(7000, cm.getDeathList().get(1).getPointsLost());
+
+		CoxRaidSession gap = new CoxRaidSession();
+		gap.startRaid();
+		gap.completeRoom("Crabs", 80);
+		gap.recordDeath();
+		Assert.assertEquals("", gap.snapshot().getDeathList().get(0).getRoom());
+
+		CoxRaidSession olm = new CoxRaidSession();
+		olm.startRaid();
+		olm.olmPhaseStarted(100);
+		olm.recordDeath();
+		Assert.assertEquals("Olm", olm.snapshot().getDeathList().get(0).getRoom());
+
+		CoxRaidSession both = new CoxRaidSession();
+		both.startRaid();
+		both.raiseDeathCount(1);
+		both.notePoints(10000);
+		both.recordDeath(8000);
+		Assert.assertEquals(1, both.snapshot().getDeaths());
+		Assert.assertEquals(1, both.snapshot().getDeathList().size());
+		Assert.assertEquals(2000, both.snapshot().getDeathList().get(0).getPointsLost());
+
+		CoxRaidSession regular = new CoxRaidSession();
+		regular.startRaid();
+		regular.notePoints(20000);
+		regular.completeRoom("Tekton", 100);
+		regular.recordDeath(16000);
+		regular.raidCompleted(200, 16000, 16000, 1);
+		regular.setKillCount(4, false);
+		CoxRaidRecord saved = regular.snapshot();
+		saved.settleDeathRooms();
+		Assert.assertEquals("", saved.getDeathList().get(0).getRoom());
+		Assert.assertEquals(4000, saved.getDeathList().get(0).getPointsLost());
+
+		CoxRaidSession full = new CoxRaidSession();
+		full.startRaid();
+		full.completeRoom("Tekton", 40);
+		full.recordDeath();
+		int clock = 80;
+		for (int i = 1; i < 11; i++)
+		{
+			full.completeRoom(RoomNames.PREP_ROOMS.get(i), clock);
+			clock += 40;
+		}
+		full.raidCompleted(clock, 10000, 10000, 1);
+		full.setKillCount(1, false);
+		CoxRaidRecord laidOut = full.snapshot();
+		Assert.assertTrue(laidOut.isFullLayout());
+		laidOut.settleDeathRooms();
+		Assert.assertEquals("Crabs", laidOut.getDeathList().get(0).getRoom());
 	}
 }

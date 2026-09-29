@@ -61,6 +61,7 @@ public class PurplePanel extends JPanel implements Scrollable
 	private boolean summaryOpen = true;
 	private boolean itemsOpen = true;
 	private boolean historyOpen = true;
+	private boolean deathsOpen = true;
 	private boolean trackedOpen = true;
 	private ItemManager itemManager;
 
@@ -80,7 +81,12 @@ public class PurplePanel extends JPanel implements Scrollable
 
 	public void showBoard(PurpleBoard next, boolean summary, boolean tracked)
 	{
-		board = next == null ? PurpleBoard.empty() : next;
+		PurpleBoard incoming = next == null ? PurpleBoard.empty() : next;
+		if (notice == null && summaryOn == summary && trackedOn == tracked && board.same(incoming))
+		{
+			return;
+		}
+		board = incoming;
 		summaryOn = summary;
 		trackedOn = tracked;
 		notice = null;
@@ -141,7 +147,17 @@ public class PurplePanel extends JPanel implements Scrollable
 						historyOpen = !historyOpen;
 						rebuild();
 					}
-				}, historyOpen ? historyBody() : null));
+				}, historyOpen ? historyBody() : null, historyLegend()));
+				add(gap());
+				add(section("Deaths", deathsOpen, new Runnable()
+				{
+					@Override
+					public void run()
+					{
+						deathsOpen = !deathsOpen;
+						rebuild();
+					}
+				}, deathsOpen ? deathsBody() : null));
 			}
 			if (trackedOn && !board.getTracked().isEmpty())
 			{
@@ -202,6 +218,23 @@ public class PurplePanel extends JPanel implements Scrollable
 		body.add(Box.createVerticalStrut(6));
 		body.add(points);
 		return body;
+	}
+
+	private JPanel deathsBody()
+	{
+		JPanel lost = new JPanel(new GridLayout(2, 2, 6, 6));
+		lost.setOpaque(false);
+		lost.add(stat("Points lost", grouped(board.getPointsLost()), INK));
+		lost.add(stat("As purples", String.format(Locale.US, "%.2f", board.getLostPurples()), INK));
+		String raidsWorth = board.getAveragePoints() > 0
+			? String.format(Locale.US, "%.2f", board.getLostRaids())
+			: "--";
+		lost.add(stat("As raids", raidsWorth, INK));
+		String deathRate = board.getRaids() > 0
+			? String.format(Locale.US, "%.1f%%", board.getDeathRate() * 100.0)
+			: "--";
+		lost.add(stat("Death rate", deathRate, INK));
+		return lost;
 	}
 
 	private JPanel itemsBody()
@@ -403,23 +436,21 @@ public class PurplePanel extends JPanel implements Scrollable
 		return -1;
 	}
 
+	private String historyLegend()
+	{
+		String every = board.getExpectedEvery() > 0
+			? " A dot is where one was expected, every " + board.getExpectedEvery() + " raids."
+			: "";
+		return "Purple is a unique you received." + every
+			+ " Grey is a white light. Gold is next. Kit is dark green, pet is white, and dust is cyan.";
+	}
+
 	private JPanel historyBody()
 	{
 		JPanel wrap = new JPanel();
 		wrap.setLayout(new BoxLayout(wrap, BoxLayout.Y_AXIS));
 		wrap.setOpaque(false);
-		String every = board.getExpectedEvery() > 0
-			? "Purple is a unique you received. A dot is where one was expected, every "
-				+ board.getExpectedEvery() + " raids. Grey is a white light. Gold is next. "
-				+ "Kit is dark green, pet is white, and dust is cyan."
-			: "Purple is a unique you received. Grey is a white light. Gold is next. "
-				+ "Kit is dark green, pet is white, and dust is cyan.";
-		JLabel caption = new JLabel("<html><body style='width:150px'>" + every + "</body></html>");
-		caption.setFont(LABEL);
-		caption.setForeground(MUTED);
-		wrap.add(caption);
-		wrap.add(Box.createVerticalStrut(6));
-		HistoryStrip strip = new HistoryStrip(board.getMarks(), board.getSideKinds());
+		HistoryStrip strip = new HistoryStrip(board.getMarks(), board.getSideKinds(), historyLegend());
 		strip.setAlignmentX(Component.LEFT_ALIGNMENT);
 		wrap.add(strip);
 		long worth = board.getRaidsWorth();
@@ -465,6 +496,11 @@ public class PurplePanel extends JPanel implements Scrollable
 
 	private JPanel section(String title, boolean open, Runnable toggle, JPanel body)
 	{
+		return section(title, open, toggle, body, null);
+	}
+
+	private JPanel section(String title, boolean open, Runnable toggle, JPanel body, String tip)
+	{
 		JPanel block = new JPanel();
 		block.setLayout(new BoxLayout(block, BoxLayout.Y_AXIS));
 		block.setOpaque(false);
@@ -474,6 +510,10 @@ public class PurplePanel extends JPanel implements Scrollable
 		header.setForeground(ColorScheme.BRAND_ORANGE);
 		header.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
 		header.setAlignmentX(Component.LEFT_ALIGNMENT);
+		if (tip != null)
+		{
+			header.setToolTipText(tip);
+		}
 		header.addMouseListener(new MouseAdapter()
 		{
 			@Override
@@ -628,12 +668,15 @@ public class PurplePanel extends JPanel implements Scrollable
 		private final List<PurpleBoard.Mark> marks;
 		private final List<String> sideKinds;
 
-		private HistoryStrip(List<PurpleBoard.Mark> marks, List<String> sideKinds)
+		private final String legend;
+
+		private HistoryStrip(List<PurpleBoard.Mark> marks, List<String> sideKinds, String legend)
 		{
 			this.marks = marks;
 			this.sideKinds = sideKinds == null ? java.util.Collections.<String>emptyList() : sideKinds;
+			this.legend = legend == null ? "" : legend;
 			setOpaque(false);
-			setToolTipText("Each square is one logged raid, read left to right");
+			setToolTipText(this.legend);
 			addComponentListener(new ComponentAdapter()
 			{
 				@Override
@@ -759,16 +802,16 @@ public class PurplePanel extends JPanel implements Scrollable
 			int row = y / rowStride();
 			if (col < 0 || col >= cols || row < 0)
 			{
-				return null;
+				return legend;
 			}
 			if (y % rowStride() >= CELL)
 			{
-				return null;
+				return legend;
 			}
 			int index = row * cols + col;
 			if (index < 0 || index >= marks.size())
 			{
-				return null;
+				return legend;
 			}
 			PurpleBoard.Mark mark = marks.get(index);
 			String kind;

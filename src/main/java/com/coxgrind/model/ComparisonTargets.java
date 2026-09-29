@@ -2,13 +2,14 @@ package com.coxgrind.model;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Hand-entered benchmark times. Regular and regular-full raids share one sheet.
- * Challenge Mode has its own sheet. Points and points-per-hour are single targets, not per room.
+ * Hand-entered benchmark times. One sheet for regular solo, regular team, CM solo, and CM team.
+ * Regular full uses the regular sheet for that team size. Points and points-per-hour are single targets, not per room.
  */
 public class ComparisonTargets
 {
@@ -25,11 +26,8 @@ public class ComparisonTargets
 		"Vasa",
 		"Mystics",
 		"Muttadiles",
-		"Olm mage hand phase 1",
-		"Olm phase 1",
-		"Olm mage hand phase 2",
-		"Olm phase 2",
-		"Olm phase 3",
+		"Olm mage hand",
+		"Olm phase",
 		"Olm head",
 		"Between room time"
 	));
@@ -37,31 +35,20 @@ public class ComparisonTargets
 	public static final String POINTS = "Total Points";
 	public static final String PPH = "PPH";
 
-	private Map<String, Integer> regular = new LinkedHashMap<>();
-	private Map<String, Integer> cm = new LinkedHashMap<>();
+	private final Map<TargetSheet, Map<String, Integer>> sheets = new EnumMap<>(TargetSheet.class);
 
-	public Map<String, Integer> getRegular()
+	public Map<String, Integer> sheet(TargetSheet which)
 	{
-		if (regular == null)
-		{
-			regular = new LinkedHashMap<>();
-		}
-		return regular;
-	}
-
-	public Map<String, Integer> getCm()
-	{
-		if (cm == null)
-		{
-			cm = new LinkedHashMap<>();
-		}
-		return cm;
-	}
-
-	public Map<String, Integer> sheet(boolean challengeMode)
-	{
-		Map<String, Integer> source = challengeMode ? getCm() : getRegular();
 		Map<String, Integer> out = new LinkedHashMap<>();
+		if (which == null)
+		{
+			return out;
+		}
+		Map<String, Integer> source = sheets.get(which);
+		if (source == null)
+		{
+			return out;
+		}
 		for (Map.Entry<String, Integer> entry : source.entrySet())
 		{
 			if (entry.getKey() != null && entry.getValue() != null && entry.getValue() > 0)
@@ -72,12 +59,17 @@ public class ComparisonTargets
 		return out;
 	}
 
-	public void put(boolean challengeMode, String row, Integer value)
+	public void put(TargetSheet which, String row, Integer value)
 	{
-		Map<String, Integer> sheet = challengeMode ? getCm() : getRegular();
-		if (row == null)
+		if (which == null || row == null)
 		{
 			return;
+		}
+		Map<String, Integer> sheet = sheets.get(which);
+		if (sheet == null)
+		{
+			sheet = new LinkedHashMap<>();
+			sheets.put(which, sheet);
 		}
 		if (value == null || value <= 0)
 		{
@@ -85,5 +77,11 @@ public class ComparisonTargets
 			return;
 		}
 		sheet.put(row, value);
+	}
+
+	/** Solo sheet. True is Challenge Mode solo. False is regular solo. */
+	public void put(boolean challengeMode, String row, Integer value)
+	{
+		put(challengeMode ? TargetSheet.CM_SOLO : TargetSheet.REGULAR_SOLO, row, value);
 	}
 }

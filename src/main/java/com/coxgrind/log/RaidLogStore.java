@@ -2,6 +2,7 @@ package com.coxgrind.log;
 
 import com.coxgrind.model.CoxRaidRecord;
 import com.coxgrind.model.PartyPurple;
+import com.coxgrind.model.RaidDeath;
 import com.coxgrind.model.RoomSplit;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -19,23 +20,36 @@ import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * One pretty JSON file per account. Each raid is stored once.
+ * One pretty JSON file per account key. Each raid is stored once.
+ * A leagues world uses {@code account-<hash>-league.json} so it stays out of the main file.
  * A later kill count or purple replaces that raid instead of adding a second line.
  * Older append-only {@code .jsonl} files are read once and rewritten.
  */
 public final class RaidLogStore
 {
+	private static final Logger log = LoggerFactory.getLogger(RaidLogStore.class);
 	private static final Gson GSON = new GsonBuilder().create();
 	private static final Type RAID_LIST = new TypeToken<List<CoxRaidRecord>>()
 	{
 	}.getType();
 
 	private final Path root;
+	private final Map<String, List<CoxRaidRecord>> memory = new HashMap<>();
+	private final Object ioLock = new Object();
+	private final Object writes = new Object();
+	private ExecutorService writer;
+	private int pending;
 
 	public RaidLogStore(Path root)
 	{
@@ -74,9 +88,97 @@ public final class RaidLogStore
 	}
 
 	/**
-	 * Insert or replace one raid, then rewrite the account file.
+	 * Insert or replace one raid in memory, then rewrite the account file before returning.
 	 */
-	public synchronized void save(String accountHash, CoxRaidRecord record) throws IOException
+	public void save(String accountHash, CoxRaidRecord record) throws IOException
+	{
+		write(accountHash, remember(accountHash, record));
+	}
+
+	/**
+	 * Insert or replace one raid in memory before returning. The file is written on a background thread.
+	 * {@link #flush()} waits for that write.
+	 */
+	public void saveLater(String accountHash, CoxRaidRecord record) throws IOException
+	{
+		final List<CoxRaidRecord> snapshot = remember(accountHash, record);
+		synchronized (writes)
+		{
+			pending++;
+		}
+		try
+		{
+			writer().execute(new Runnable()
+			{
+				@Override
+				public void run()
+				{
+					try
+					{
+						write(accountHash, snapshot);
+					}
+					catch (IOException ex)
+					{
+						log.warn("Could not write the Cox Grind log", ex);
+					}
+					finally
+					{
+						synchronized (writes)
+						{
+							pending--;
+							writes.notifyAll();
+						}
+					}
+				}
+			});
+		}
+		catch (RuntimeException ex)
+		{
+			synchronized (writes)
+			{
+				pending--;
+				writes.notifyAll();
+			}
+			throw ex;
+		}
+	}
+
+	/** Wait until queued account-file writes have finished. */
+	public void flush()
+	{
+		boolean interrupted = false;
+		synchronized (writes)
+		{
+			while (pending > 0)
+			{
+				try
+				{
+					writes.wait();
+				}
+				catch (InterruptedException ex)
+				{
+					interrupted = true;
+				}
+			}
+		}
+		if (interrupted)
+		{
+			Thread.currentThread().interrupt();
+		}
+	}
+
+	public synchronized List<CoxRaidRecord> load(String accountHash) throws IOException
+	{
+		List<CoxRaidRecord> cached = memory.get(accountHash);
+		if (cached == null)
+		{
+			cached = readAccount(accountHash);
+			memory.put(accountHash, cached);
+		}
+		return Collections.unmodifiableList(new ArrayList<>(cached));
+	}
+
+	private synchronized List<CoxRaidRecord> remember(String accountHash, CoxRaidRecord record) throws IOException
 	{
 		if (accountHash == null || accountHash.isEmpty())
 		{
@@ -86,25 +188,35 @@ public final class RaidLogStore
 		{
 			throw new IOException("Raid is missing an id.");
 		}
-		List<CoxRaidRecord> raids = load(accountHash);
-		boolean replaced = false;
-		for (int i = 0; i < raids.size(); i++)
+		List<CoxRaidRecord> current = memory.get(accountHash);
+		if (current == null)
 		{
-			if (record.getId().equals(raids.get(i).getId()))
+			current = readAccount(accountHash);
+		}
+		List<CoxRaidRecord> next = new ArrayList<>(current.size() + 1);
+		boolean replaced = false;
+		for (int i = 0; i < current.size(); i++)
+		{
+			CoxRaidRecord existing = current.get(i);
+			if (!replaced && record.getId().equals(existing.getId()))
 			{
-				raids.set(i, record);
+				next.add(record);
 				replaced = true;
-				break;
+			}
+			else
+			{
+				next.add(existing);
 			}
 		}
 		if (!replaced)
 		{
-			raids.add(record);
+			next.add(record);
 		}
-		write(accountHash, raids);
+		memory.put(accountHash, next);
+		return next;
 	}
 
-	public synchronized List<CoxRaidRecord> load(String accountHash) throws IOException
+	private List<CoxRaidRecord> readAccount(String accountHash) throws IOException
 	{
 		Path json = accountFile(accountHash);
 		Path jsonl = root.resolve("account-" + safe(accountHash) + ".jsonl");
@@ -125,6 +237,27 @@ public final class RaidLogStore
 		write(accountHash, raids);
 		Files.delete(jsonl);
 		return raids;
+	}
+
+	private ExecutorService writer()
+	{
+		synchronized (writes)
+		{
+			if (writer == null)
+			{
+				writer = Executors.newSingleThreadExecutor(new java.util.concurrent.ThreadFactory()
+				{
+					@Override
+					public Thread newThread(Runnable runnable)
+					{
+						Thread thread = new Thread(runnable, "coxgrind-log");
+						thread.setDaemon(true);
+						return thread;
+					}
+				});
+			}
+			return writer;
+		}
 	}
 
 	/**
@@ -312,6 +445,14 @@ public final class RaidLogStore
 
 	private void write(String accountHash, List<CoxRaidRecord> raids) throws IOException
 	{
+		synchronized (ioLock)
+		{
+			writeFile(accountHash, raids);
+		}
+	}
+
+	private void writeFile(String accountHash, List<CoxRaidRecord> raids) throws IOException
+	{
 		Files.createDirectories(root);
 		Path file = accountFile(accountHash);
 		Path temp = file.resolveSibling(file.getFileName().toString() + ".tmp");
@@ -355,6 +496,10 @@ public final class RaidLogStore
 		lines.add("    \"kc\": " + raid.getKc());
 		lines.add("    \"teamSize\": " + raid.getTeamSize());
 		lines.add("    \"deaths\": " + raid.getDeaths());
+		if (!raid.getDeathList().isEmpty())
+		{
+			lines.add("    \"deathList\": " + deathsJson(raid.getDeathList()));
+		}
 		lines.add("    \"personalPoints\": " + raid.getPersonalPoints());
 		lines.add("    \"teamPoints\": " + raid.getTeamPoints());
 		if (raid.secondsFor("Raid Completed") < 0)
@@ -402,6 +547,28 @@ public final class RaidLogStore
 			out.append("      {\"room\": ").append(quote(split.getRoom()))
 				.append(", \"seconds\": ").append(split.getSeconds()).append('}');
 			if (i + 1 < splits.size())
+			{
+				out.append(',');
+			}
+			out.append('\n');
+		}
+		out.append("    ]");
+		return out.toString();
+	}
+
+	private static String deathsJson(List<RaidDeath> deaths)
+	{
+		StringBuilder out = new StringBuilder("[\n");
+		for (int i = 0; i < deaths.size(); i++)
+		{
+			RaidDeath death = deaths.get(i);
+			out.append("      {");
+			if (death.getRoom().length() > 0)
+			{
+				out.append("\"room\": ").append(quote(death.getRoom())).append(", ");
+			}
+			out.append("\"pointsLost\": ").append(death.getPointsLost()).append('}');
+			if (i + 1 < deaths.size())
 			{
 				out.append(',');
 			}

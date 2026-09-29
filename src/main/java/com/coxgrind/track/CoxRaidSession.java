@@ -2,7 +2,9 @@ package com.coxgrind.track;
 
 import com.coxgrind.model.CoxRaidRecord;
 import com.coxgrind.model.PartyPurple;
+import com.coxgrind.model.RaidDeath;
 import com.coxgrind.model.RoomSplit;
+import java.util.List;
 
 /**
  * In-memory raid that turns game events into room, floor, and Olm splits.
@@ -23,6 +25,15 @@ public final class CoxRaidSession
 	private int currentPhase = 1;
 	private boolean mageRecorded;
 	private int headStartUnits = -1;
+	/** How many ticks a death's point drop is watched for. */
+	private static final int DEATH_POINT_TICKS = 6;
+	private int lastPoints;
+	private boolean pendingDeath;
+	private int pendingBaseline;
+	private int pendingMin;
+	private int pendingTicks;
+	/** Bumps when the sidebar list changes. A clock tick does not. */
+	private int generation;
 	private final CoxRaidRecord record = new CoxRaidRecord();
 
 	public void startRaid()
@@ -46,6 +57,11 @@ public final class CoxRaidSession
 		currentPhase = 1;
 		mageRecorded = false;
 		headStartUnits = -1;
+		lastPoints = 0;
+		pendingDeath = false;
+		pendingBaseline = 0;
+		pendingMin = 0;
+		pendingTicks = 0;
 		record.setId(null);
 		record.setTimestamp(null);
 		record.setPlayerName(null);
@@ -54,6 +70,7 @@ public final class CoxRaidSession
 		record.setKc(0);
 		record.setTeamSize(0);
 		record.setDeaths(0);
+		record.getDeathList().clear();
 		record.setPersonalPoints(0);
 		record.setTeamPoints(0);
 		record.setTotalSeconds(0);
@@ -61,6 +78,13 @@ public final class CoxRaidSession
 		record.getExtras().clear();
 		record.getPartyPurples().clear();
 		record.getSplits().clear();
+		generation++;
+	}
+
+	/** Changes when a split, the kill count, or the points on a finished raid change. */
+	public int getGeneration()
+	{
+		return generation;
 	}
 
 	public boolean isRunning()
@@ -117,6 +141,7 @@ public final class CoxRaidSession
 		}
 		record.putSplit(room, seconds);
 		lastSplitUnits = timerUnits;
+		generation++;
 	}
 
 	public void completeLevel(String level, int timerUnits)
@@ -134,6 +159,7 @@ public final class CoxRaidSession
 			upperUnits = timerUnits;
 			record.putSplit("Floor 1", TimeFormat.unitsToSeconds(timerUnits));
 			lastSplitUnits = timerUnits;
+			generation++;
 		}
 		else if ("Middle".equals(level))
 		{
@@ -145,6 +171,7 @@ public final class CoxRaidSession
 			int from = upperUnits >= 0 ? upperUnits : 0;
 			record.putSplit("Floor 2", TimeFormat.unitsToSeconds(timerUnits - from));
 			lastSplitUnits = timerUnits;
+			generation++;
 		}
 		else if ("Lower".equals(level))
 		{
@@ -173,6 +200,7 @@ public final class CoxRaidSession
 			}
 			record.putSplit(floorName, TimeFormat.unitsToSeconds(timerUnits - from));
 			lastSplitUnits = timerUnits;
+			generation++;
 		}
 	}
 
@@ -188,6 +216,7 @@ public final class CoxRaidSession
 		{
 			olmStartUnits = timerUnits;
 		}
+		generation++;
 	}
 
 	public void mageHandDown(int timerUnits)
@@ -202,6 +231,7 @@ public final class CoxRaidSession
 			if (seconds > 0)
 			{
 				record.putSplit("Olm mage hand phase " + currentPhase, seconds);
+				generation++;
 			}
 		}
 		mageRecorded = true;
@@ -226,6 +256,7 @@ public final class CoxRaidSession
 		{
 			headStartUnits = timerUnits;
 		}
+		generation++;
 	}
 
 	/**
@@ -261,6 +292,11 @@ public final class CoxRaidSession
 		{
 			return;
 		}
+		if (pendingDeath && personalPoints > 0)
+		{
+			absorbDeathPoints(personalPoints);
+		}
+		pendingDeath = false;
 		setTeamSize(size);
 		if (headStartUnits >= 0)
 		{
@@ -283,28 +319,51 @@ public final class CoxRaidSession
 		record.setTotalSeconds(total);
 		updateScore(personalPoints, teamPoints, size);
 		complete = true;
+		generation++;
 	}
 
 	public void updateScore(int personalPoints, int teamPoints, int size)
 	{
-		if (personalPoints > 0)
+		boolean changed = false;
+		if (personalPoints > 0 && personalPoints != record.getPersonalPoints())
 		{
 			record.setPersonalPoints(personalPoints);
+			changed = true;
 		}
-		if (teamPoints > 0)
+		if (teamPoints > 0 && teamPoints != record.getTeamPoints())
 		{
 			record.setTeamPoints(teamPoints);
+			changed = true;
 		}
+		int before = record.getTeamSize();
 		setTeamSize(size);
+		if (record.getTeamSize() != before)
+		{
+			changed = true;
+		}
+		if (changed)
+		{
+			generation++;
+		}
 	}
 
 	public void setKillCount(int kc, boolean challengeMode)
 	{
-		if (kc > 0)
+		boolean changed = false;
+		if (kc > 0 && kc != record.getKc())
 		{
 			record.setKc(kc);
+			changed = true;
 		}
-		record.setChallengeMode(challengeMode);
+		if (challengeMode != record.isChallengeMode())
+		{
+			record.setChallengeMode(challengeMode);
+			changed = true;
+		}
+		if (changed)
+		{
+			generation++;
+		}
 	}
 
 	public void setPurple(String item)
@@ -325,13 +384,146 @@ public final class CoxRaidSession
 		record.addPartyPurple(playerName, item);
 	}
 
+	/**
+	 * Personal points seen on a game tick, used to measure the drop after a death.
+	 */
+	public void notePoints(int pointsNow)
+	{
+		if (!running || complete || pointsNow <= 0)
+		{
+			return;
+		}
+		if (pendingDeath)
+		{
+			absorbDeathPoints(pointsNow);
+			pendingTicks--;
+			if (pendingTicks <= 0)
+			{
+				pendingDeath = false;
+			}
+		}
+		lastPoints = pointsNow;
+	}
+
+	/**
+	 * A witnessed death. Adds one list row and raises the count, unless the death varbit already counted it.
+	 */
 	public void recordDeath()
+	{
+		witnessDeath(false, 0);
+	}
+
+	/**
+	 * A witnessed death with the personal points at that moment.
+	 * The points lost are the drop from the last sampled score over the next few ticks.
+	 */
+	public void recordDeath(int pointsNow)
+	{
+		int sample = pointsNow > 0 ? pointsNow : lastPoints;
+		witnessDeath(true, sample);
+	}
+
+	private void witnessDeath(boolean measurePoints, int pointsNow)
 	{
 		if (!running || complete)
 		{
 			return;
 		}
-		record.setDeaths(record.getDeaths() + 1);
+		if (pendingDeath)
+		{
+			if (measurePoints)
+			{
+				absorbDeathPoints(pointsNow);
+			}
+			pendingDeath = false;
+		}
+		boolean alreadyCounted = record.getDeathList().size() < record.getDeaths();
+		if (!alreadyCounted)
+		{
+			record.setDeaths(record.getDeaths() + 1);
+		}
+		int baseline = lastPoints > 0 ? lastPoints : Math.max(0, pointsNow);
+		record.addDeath(deathRoom(), 0);
+		if (!measurePoints)
+		{
+			return;
+		}
+		pendingDeath = true;
+		pendingBaseline = baseline;
+		pendingMin = Math.max(0, pointsNow);
+		pendingTicks = DEATH_POINT_TICKS;
+		absorbDeathPoints(pointsNow);
+		if (pointsNow >= 0)
+		{
+			lastPoints = pointsNow;
+		}
+	}
+
+	private void absorbDeathPoints(int pointsNow)
+	{
+		if (pointsNow >= 0 && pointsNow < pendingMin)
+		{
+			pendingMin = pointsNow;
+		}
+		if (pendingBaseline > pendingMin)
+		{
+			List<RaidDeath> list = record.getDeathList();
+			if (!list.isEmpty())
+			{
+				RaidDeath death = list.get(list.size() - 1);
+				if (death != null)
+				{
+					death.setPointsLost(pendingBaseline - pendingMin);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Olm when a phase or the head is open.
+	 * On the fixed layout, the next room only when nothing sits between it and the room that just finished.
+	 */
+	private String deathRoom()
+	{
+		if (olmStartUnits >= 0 || headStartUnits >= 0)
+		{
+			return "Olm";
+		}
+		String lastPrep = "";
+		List<RoomSplit> splits = record.getSplits();
+		for (int i = 0; i < splits.size(); i++)
+		{
+			RoomSplit split = splits.get(i);
+			if (split != null && RoomNames.isPrepRoom(split.getRoom()))
+			{
+				lastPrep = split.getRoom();
+			}
+		}
+		if (lastPrep.isEmpty())
+		{
+			return "Tekton";
+		}
+		if ("Tekton".equals(lastPrep))
+		{
+			return "Crabs";
+		}
+		if ("Ice demon".equals(lastPrep))
+		{
+			return "Shamans";
+		}
+		if ("Vanguards".equals(lastPrep))
+		{
+			return "Thieving";
+		}
+		if ("Guardians".equals(lastPrep))
+		{
+			return "Vasa";
+		}
+		if ("Mystics".equals(lastPrep))
+		{
+			return "Muttadiles";
+		}
+		return "";
 	}
 
 	/**
@@ -361,6 +553,14 @@ public final class CoxRaidSession
 		copy.setKc(record.getKc());
 		copy.setTeamSize(record.getTeamSize());
 		copy.setDeaths(record.getDeaths());
+		for (int i = 0; i < record.getDeathList().size(); i++)
+		{
+			RaidDeath death = record.getDeathList().get(i);
+			if (death != null)
+			{
+				copy.addDeath(death.getRoom(), death.getPointsLost());
+			}
+		}
 		copy.setPersonalPoints(record.getPersonalPoints());
 		copy.setTeamPoints(record.getTeamPoints());
 		copy.setTotalSeconds(record.getTotalSeconds());

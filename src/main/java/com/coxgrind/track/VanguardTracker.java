@@ -49,6 +49,18 @@ public final class VanguardTracker
 		return challengeMode;
 	}
 
+	/** A Challenge Mode room is open and its tick counter still matters. */
+	public boolean isTiming()
+	{
+		return sample != null && !closed;
+	}
+
+	/** Health is only read while a form is up. */
+	public boolean needsHealth()
+	{
+		return phase == UP && draft != null && !closed;
+	}
+
 	public void contact(String emergedAt, int world, int size, int raidClock, int deathsSoFar)
 	{
 		if (!challengeMode || closed)

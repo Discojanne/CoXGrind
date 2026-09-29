@@ -47,6 +47,7 @@ public class RaidLogStoreTest
 		Assert.assertFalse(json.contains("totalSeconds"));
 		Assert.assertEquals(1200, first.get(0).getTotalSeconds());
 		Assert.assertTrue(json.contains("{\"room\": \"Tekton\", \"seconds\": 60}"));
+		Assert.assertFalse(json.contains("deathList"));
 		Assert.assertEquals(1, store.load("acct-2").size());
 		Assert.assertEquals("Kodai insignia", store.load("acct-2").get(0).getPurple());
 	}
@@ -122,6 +123,35 @@ public class RaidLogStoreTest
 	}
 
 	@Test
+	public void leagueRaidsStayOutOfTheAccountFile() throws Exception
+	{
+		Path root = Files.createTempDirectory("coxgrind-league");
+		RaidLogStore store = new RaidLogStore(root);
+		store.save("123", raid("raid-main", ""));
+		CoxRaidRecord league = raid("raid-league", "Twisted bow");
+		store.save("123-league", league);
+		store.save("456", raid("raid-other", ""));
+
+		Assert.assertEquals("raid-main", store.load("123").get(0).getId());
+		Assert.assertEquals("raid-league", store.load("123-league").get(0).getId());
+		Assert.assertEquals("raid-other", store.load("456").get(0).getId());
+		Assert.assertEquals(1, store.load("123").size());
+		Assert.assertEquals(1, store.load("123-league").size());
+
+		String mainJson = new String(Files.readAllBytes(root.resolve("account-123.json")), StandardCharsets.UTF_8);
+		String leagueJson = new String(Files.readAllBytes(root.resolve("account-123-league.json")), StandardCharsets.UTF_8);
+		Assert.assertFalse(mainJson.contains("raid-league"));
+		Assert.assertFalse(leagueJson.contains("raid-main"));
+		Assert.assertTrue(Files.exists(root.resolve("account-456.json")));
+
+		Files.setLastModifiedTime(
+			root.resolve("account-123-league.json"),
+			java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 60_000)
+		);
+		Assert.assertEquals("123-league", store.latestAccountHash());
+	}
+
+	@Test
 	public void latestAccountIsTheNewestFile() throws Exception
 	{
 		Path root = Files.createTempDirectory("coxgrind-latest");
@@ -133,6 +163,53 @@ public class RaidLogStoreTest
 			java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 60_000)
 		);
 		Assert.assertEquals("newer", store.latestAccountHash());
+	}
+
+	@Test
+	public void saveLaterIsVisibleBeforeTheFileWriteFinishes() throws Exception
+	{
+		Path root = Files.createTempDirectory("coxgrind-later");
+		RaidLogStore store = new RaidLogStore(root);
+		store.saveLater("acct-1", raid("raid-a", ""));
+		Assert.assertEquals("raid-a", store.load("acct-1").get(0).getId());
+		store.flush();
+		String json = new String(Files.readAllBytes(root.resolve("account-acct-1.json")), StandardCharsets.UTF_8);
+		Assert.assertTrue(json.contains("raid-a"));
+
+		CoxRaidRecord updated = raid("raid-a", "Twisted bow");
+		updated.setKc(9);
+		store.saveLater("acct-1", updated);
+		store.flush();
+		List<CoxRaidRecord> loaded = store.load("acct-1");
+		Assert.assertEquals(1, loaded.size());
+		Assert.assertEquals(9, loaded.get(0).getKc());
+		Assert.assertEquals("Twisted bow", loaded.get(0).getPurple());
+	}
+
+	@Test
+	public void deathListRoundTripLeavesTheNameOut() throws Exception
+	{
+		Path root = Files.createTempDirectory("coxgrind-deaths");
+		RaidLogStore store = new RaidLogStore(root);
+		CoxRaidRecord raid = raid("raid-a", "");
+		raid.addDeath("Crabs", 8000);
+		raid.addDeath("", 1500);
+		store.save("acct-1", raid);
+
+		CoxRaidRecord loaded = store.load("acct-1").get(0);
+		Assert.assertEquals(2, loaded.getDeathList().size());
+		Assert.assertEquals("Crabs", loaded.getDeathList().get(0).getRoom());
+		Assert.assertEquals(8000, loaded.getDeathList().get(0).getPointsLost());
+		Assert.assertEquals("", loaded.getDeathList().get(1).getRoom());
+		Assert.assertEquals(1500, loaded.getDeathList().get(1).getPointsLost());
+		Assert.assertEquals(9500, loaded.pointsLost());
+
+		String json = new String(Files.readAllBytes(root.resolve("account-acct-1.json")), StandardCharsets.UTF_8);
+		Assert.assertTrue(json.contains("\"room\": \"Crabs\""));
+		Assert.assertTrue(json.contains("\"pointsLost\": 8000"));
+		Assert.assertTrue(json.contains("\"pointsLost\": 1500"));
+		Assert.assertFalse(json.contains("\"room\": \"\""));
+		Assert.assertFalse(json.contains("playerName"));
 	}
 
 	private static CoxRaidRecord raid(String id, String purple)

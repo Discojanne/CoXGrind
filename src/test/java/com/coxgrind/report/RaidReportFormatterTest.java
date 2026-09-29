@@ -130,7 +130,7 @@ public class RaidReportFormatterTest
 		Assert.assertFalse(targetTab.contains("Recent raid vs your targets"));
 		Assert.assertTrue(targetTab.contains("Tekton"));
 		Assert.assertTrue(report.contains("On Rate"));
-		Assert.assertTrue(report.contains("Death estimate"));
+		Assert.assertFalse(report.contains("Death estimate"));
 		int deathsAt = report.indexOf("Total deaths");
 		Assert.assertTrue(deathsAt >= 0);
 		Assert.assertTrue(report.substring(deathsAt, Math.min(report.length(), deathsAt + 40)).contains("2"));
@@ -240,6 +240,24 @@ public class RaidReportFormatterTest
 		Assert.assertEquals(Integer.valueOf(-20), view.getRows().get(0).getDelta());
 		Assert.assertEquals("-00:20", view.getRows().get(0).getDiff());
 		Assert.assertTrue(view.getRows().get(view.getRows().size() - 1).isOpen());
+	}
+
+	@Test
+	public void finishedLiveRaidKeepsItsOwnTimeInTheAverage()
+	{
+		CoxRaidRecord past = raid(true, 1, 50000, 80, "");
+		CoxRaidRecord live = raid(true, 1, 50000, 60, "");
+		RaidReportFormatter.PaceComparison view = RaidReportFormatter.paceView(
+			Collections.singletonList(past),
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			ReportOptions.defaults(10),
+			live,
+			-1,
+			false
+		);
+		Assert.assertEquals("Tekton", view.getRows().get(0).getLabel());
+		Assert.assertEquals(Integer.valueOf(-10), view.getRows().get(0).getDelta());
 	}
 
 	@Test
@@ -361,6 +379,102 @@ public class RaidReportFormatterTest
 	}
 
 	@Test
+	public void lastAverageTargetUsesTheWindowAgainstTheSheet()
+	{
+		CoxRaidRecord older = raid(true, 1, 30000, 100, "");
+		older.getSplits().add(1, new RoomSplit("Crabs", 50));
+		CoxRaidRecord middle = raid(true, 1, 50000, 40, "");
+		CoxRaidRecord recent = raid(true, 1, 70000, 80, "");
+		ReportOptions options = ReportOptions.defaults(10);
+		ComparisonTargets targets = new ComparisonTargets();
+		targets.put(true, "Tekton", 70);
+		targets.put(true, "Crabs", 50);
+		targets.put(true, "Olm phase 1", 100);
+		targets.put(true, "Between room time", 40);
+		targets.put(true, "Total Points", 60000);
+		options.setTargets(targets);
+		java.util.List<CoxRaidRecord> raids = Arrays.asList(older, middle, recent);
+
+		RaidReportFormatter.PaceComparison lastTwo = RaidReportFormatter.lastAverageTargetView(
+			raids,
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			options,
+			2
+		);
+		RaidReportFormatter.TimeRow tekton = rowNamed(lastTwo, "Tekton");
+		RaidReportFormatter.TimeRow points = rowNamed(lastTwo, "Total Points");
+		Assert.assertNotNull(tekton);
+		Assert.assertEquals("01:00", tekton.getValue());
+		Assert.assertEquals("-00:10", tekton.getDiff());
+		Assert.assertEquals(Integer.valueOf(-10), tekton.getDelta());
+		Assert.assertNull(rowNamed(lastTwo, "Crabs"));
+		Assert.assertNotNull(points);
+		Assert.assertEquals("60000", points.getValue());
+		Assert.assertEquals("0", points.getDiff());
+		java.util.Map<String, Integer> ahead = new java.util.LinkedHashMap<>();
+		for (int i = 0; i < lastTwo.getPoints().size(); i++)
+		{
+			RaidReportFormatter.PacePoint point = lastTwo.getPoints().get(i);
+			ahead.put(point.getLabel(), point.getAheadSeconds());
+		}
+		Assert.assertEquals(Integer.valueOf(0), ahead.get("Start"));
+		Assert.assertEquals(Integer.valueOf(10), ahead.get("Tekton"));
+		Assert.assertEquals(Integer.valueOf(-310), ahead.get("Olm"));
+		Assert.assertEquals(Integer.valueOf(-880), ahead.get("Finish"));
+
+		RaidReportFormatter.PaceComparison lastOne = RaidReportFormatter.lastAverageTargetView(
+			raids,
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			options,
+			1
+		);
+		RaidReportFormatter.PaceComparison recentView = RaidReportFormatter.targetView(
+			raids,
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			options
+		);
+		Assert.assertEquals(rowNamed(recentView, "Tekton").getValue(), rowNamed(lastOne, "Tekton").getValue());
+		Assert.assertEquals(rowNamed(recentView, "Tekton").getDiff(), rowNamed(lastOne, "Tekton").getDiff());
+		Assert.assertNull(rowNamed(lastOne, "Crabs"));
+
+		RaidReportFormatter.PaceComparison lastTen = RaidReportFormatter.lastAverageTargetView(
+			raids,
+			RaidModeFilter.CM,
+			RaidSizeFilter.SOLO,
+			options,
+			10
+		);
+		Assert.assertEquals("01:13", rowNamed(lastTen, "Tekton").getValue());
+		Assert.assertEquals("00:50", rowNamed(lastTen, "Crabs").getValue());
+
+		RaidReportFormatter.PaceComparison all = RaidReportFormatter.lastAverageTargetView(
+			raids,
+			RaidModeFilter.ALL,
+			RaidSizeFilter.SOLO,
+			options,
+			2
+		);
+		Assert.assertTrue(all.getPoints().isEmpty());
+		Assert.assertTrue(all.getText().startsWith("Pick Regular"));
+	}
+
+	private static RaidReportFormatter.TimeRow rowNamed(RaidReportFormatter.PaceComparison view, String label)
+	{
+		for (int i = 0; i < view.getRows().size(); i++)
+		{
+			RaidReportFormatter.TimeRow row = view.getRows().get(i);
+			if (label.equals(row.getLabel()))
+			{
+				return row;
+			}
+		}
+		return null;
+	}
+
+	@Test
 	public void purpleTabColorsTheRate()
 	{
 		CoxRaidRecord raid = raid(true, 1, 50000, 68, "Twisted bow");
@@ -415,6 +529,7 @@ public class RaidReportFormatterTest
 		Assert.assertEquals(1, board.getChallengeMode());
 		Assert.assertEquals(2, board.getActual());
 		Assert.assertEquals(80000L, board.getAllPoints());
+		Assert.assertEquals(0L, board.getPointsLost());
 		Assert.assertEquals(com.coxgrind.report.PurpleBoard.Mark.PURPLE, board.getMarks().get(0));
 		Assert.assertEquals(com.coxgrind.report.PurpleBoard.Mark.NEXT, board.getMarks().get(board.getMarks().size() - 1));
 		Assert.assertEquals("Elder maul", board.getTracked().get(0).getItem());
@@ -648,6 +763,26 @@ public class RaidReportFormatterTest
 		raid.putSplit("Olm", 8 * 60);
 		raid.putSplit("Raid Completed", totalSeconds);
 		return raid;
+	}
+
+	@Test
+	public void purpleBoardTurnsLostPointsIntoPurplesAndRaids()
+	{
+		CoxRaidRecord raid = raid(true, 1, 50000, 68, "");
+		raid.addDeath("Olm", 8676);
+		CoxRaidRecord regular = raid(false, 1, 30000, 50, "");
+		regular.setDeaths(2);
+		com.coxgrind.report.PurpleBoard board = RaidReportFormatter.purpleBoard(Arrays.asList(raid, regular));
+		Assert.assertEquals(8676L, board.getPointsLost());
+		Assert.assertEquals(8676 / 867600.0, board.getLostPurples(), 0.0000001);
+		Assert.assertEquals(8676 / 40000.0, board.getLostRaids(), 0.0000001);
+		Assert.assertEquals(2, board.getDeathRaids());
+		Assert.assertEquals(1.0, board.getDeathRate(), 0.0000001);
+
+		CoxRaidRecord clean = raid(false, 1, 40000, 60, "");
+		com.coxgrind.report.PurpleBoard mixed = RaidReportFormatter.purpleBoard(Arrays.asList(raid, regular, clean));
+		Assert.assertEquals(2, mixed.getDeathRaids());
+		Assert.assertEquals(2.0 / 3.0, mixed.getDeathRate(), 0.0000001);
 	}
 
 	private static CoxRaidRecord raid(boolean cm, int team, int points, int tektonSeconds, String purple)

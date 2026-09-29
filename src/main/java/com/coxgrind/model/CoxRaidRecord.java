@@ -17,6 +17,7 @@ public class CoxRaidRecord
 	private int kc;
 	private int teamSize;
 	private int deaths;
+	private List<RaidDeath> deathList = new ArrayList<>();
 	private int personalPoints;
 	private int teamPoints;
 	private int totalSeconds;
@@ -106,6 +107,64 @@ public class CoxRaidRecord
 	public void setDeaths(int deaths)
 	{
 		this.deaths = Math.max(0, deaths);
+	}
+
+	/**
+	 * Deaths whose point loss was measured. Older raids keep {@link #getDeaths()} and an empty list.
+	 */
+	public List<RaidDeath> getDeathList()
+	{
+		if (deathList == null)
+		{
+			deathList = new ArrayList<>();
+		}
+		return deathList;
+	}
+
+	public void setDeathList(List<RaidDeath> deathList)
+	{
+		this.deathList = deathList == null ? new ArrayList<RaidDeath>() : deathList;
+	}
+
+	public void addDeath(String room, int pointsLost)
+	{
+		getDeathList().add(new RaidDeath(room, pointsLost));
+	}
+
+	public int pointsLost()
+	{
+		int sum = 0;
+		List<RaidDeath> list = getDeathList();
+		for (int i = 0; i < list.size(); i++)
+		{
+			RaidDeath death = list.get(i);
+			if (death != null)
+			{
+				sum += death.getPointsLost();
+			}
+		}
+		return sum;
+	}
+
+	/**
+	 * Prep-room names are kept only on Challenge Mode and a full layout, which share one room order.
+	 * Point totals stay either way.
+	 */
+	public void settleDeathRooms()
+	{
+		if (isChallengeMode() || isFullLayout())
+		{
+			return;
+		}
+		List<RaidDeath> list = getDeathList();
+		for (int i = 0; i < list.size(); i++)
+		{
+			RaidDeath death = list.get(i);
+			if (death != null)
+			{
+				death.setRoom("");
+			}
+		}
 	}
 
 	public int getPersonalPoints()
@@ -242,15 +301,46 @@ public class CoxRaidRecord
 
 	public int prepRoomCount()
 	{
+		boolean[] seen = new boolean[RoomNames.PREP_ROOMS.size()];
 		int count = 0;
-		for (int i = 0; i < RoomNames.PREP_ROOMS.size(); i++)
+		List<RoomSplit> list = getSplits();
+		for (int i = 0; i < list.size(); i++)
 		{
-			if (secondsFor(RoomNames.PREP_ROOMS.get(i)) > 0)
+			RoomSplit split = list.get(i);
+			if (split == null)
+			{
+				continue;
+			}
+			int index = prepIndex(split.getRoom());
+			if (index < 0 || seen[index])
+			{
+				continue;
+			}
+			seen[index] = true;
+			if (split.getSeconds() > 0)
 			{
 				count++;
 			}
 		}
 		return count;
+	}
+
+	/** First stored split wins, matching {@link #secondsFor(String)}. */
+	private static int prepIndex(String room)
+	{
+		if (room == null)
+		{
+			return -1;
+		}
+		List<String> rooms = RoomNames.PREP_ROOMS;
+		for (int i = 0; i < rooms.size(); i++)
+		{
+			if (room.equals(rooms.get(i)))
+			{
+				return i;
+			}
+		}
+		return -1;
 	}
 
 	public boolean isFullLayout()
